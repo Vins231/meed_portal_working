@@ -1,0 +1,5 @@
+{
+  "name": "MbPA MEED Portal",
+  "description": "A comprehensive management portal for the Mumbai Port Authority MEED Department to track tenders, works, assets, and finance.",
+  "requestFramePermissions": []
+}

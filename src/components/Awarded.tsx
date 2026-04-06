@@ -1,0 +1,841 @@
+import { useState, useEffect, useRef } from 'react';
+import { 
+  Search, Filter, MoreVertical, Calendar,
+  IndianRupee, Tag, CheckCircle2, Clock,
+  AlertCircle, TrendingUp, X, ChevronRight, ChevronLeft, Save, Loader2,
+  Shield, PenLine, Plus, Upload, ExternalLink, Trash2
+} from 'lucide-react';
+import { cn } from '../lib/utils';
+import { AwardedRecord, User } from '../types';
+import { format, addDays, addMonths, differenceInDays } from 'date-fns';
+import { api } from '../services/api';
+import { supabase } from '../lib/supabase';
+import ErrorMessage from './ErrorMessage';
+import { useNavigate } from 'react-router-dom';
+
+export default function Awarded() {
+  const navigate = useNavigate();
+  const [records, setRecords] = useState<AwardedRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Modals State
+  const [editingRecord, setEditingRecord] = useState<AwardedRecord | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
+  const [editForm, setEditForm] = useState<Partial<AwardedRecord>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const [paymentRecord, setPaymentRecord] = useState<AwardedRecord | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const [progressPopup, setProgressPopup] = useState<{ id: string, value: number, x: number, y: number } | null>(null);
+  const progressRef = useRef<HTMLDivElement>(null);
+
+  const fetchData = () => {
+    setLoading(true);
+    api.getAwardedRecords()
+      .then(setRecords)
+      .catch(err => setError(err.message || "Failed to load awarded records"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchData();
+    const user = localStorage.getItem('meed_user');
+    if (user) setCurrentUser(JSON.parse(user));
+  }, []);
+
+  // --- AUTO CALCULATIONS ---
+  const fmtCurrency = (n: number) => {
+    if (!n) return 'Rs.0';
+    if (n >= 10000000) return 'Rs.' + (n / 10000000).toFixed(2) + ' Cr';
+    if (n >= 100000) return 'Rs.' + (n / 100000).toFixed(2) + ' L';
+    return 'Rs.' + n.toLocaleString('en-IN');
+  };
+
+  const calcScheduled = (startDate: string, periodDays: number) => {
+    if (!startDate || !periodDays) return '';
+    return format(addDays(new Date(startDate), periodDays), 'yyyy-MM-dd');
+  };
+
+  const calcRevised = (scheduledDate: string, eotDays: number) => {
+    if (!scheduledDate) return '';
+    return format(addDays(new Date(scheduledDate), eotDays || 0), 'yyyy-MM-dd');
+  };
+
+  const calcDelayDays = (revisedDate: string, actualDate?: string) => {
+    if (!revisedDate) return 0;
+    const compareDate = actualDate ? new Date(actualDate) : new Date();
+    const diff = Math.floor((compareDate.getTime() - new Date(revisedDate).getTime()) / 86400000);
+    return Math.max(0, diff);
+  };
+
+  const calcDLP = (actualCompletionDate: string) => {
+    if (!actualCompletionDate) return { start: '', end: '' };
+    const start = actualCompletionDate;
+    const end = format(addMonths(new Date(actualCompletionDate), 12), 'yyyy-MM-dd');
+    return { start, end };
+  };
+
+  // --- HANDLERS ---
+  const handleEdit = (record: AwardedRecord) => {
+    setEditingRecord(record);
+    setEditForm(record);
+    setActiveTab(0);
+  };
+
+  const updateField = (field: keyof AwardedRecord, value: any) => {
+    const updated = { ...editForm, [field]: value };
+
+    // Auto-calcs
+    if (field === 'start_date' || field === 'completion_period_days') {
+      const start = field === 'start_date' ? value : updated.start_date;
+      const period = field === 'completion_period_days' ? Number(value) : Number(updated.completion_period_days);
+      if (start && period) {
+        updated.scheduled_completion = calcScheduled(start, period);
+        updated.revised_completion = calcRevised(updated.scheduled_completion, Number(updated.eot_days) || 0);
+      }
+    }
+
+    if (field === 'eot_days') {
+      if (updated.scheduled_completion) {
+        updated.revised_completion = calcRevised(updated.scheduled_completion, Number(value));
+      }
+    }
+
+    if (field === 'revised_completion' || field === 'actual_completion') {
+      updated.delay_days = calcDelayDays(updated.revised_completion || '', updated.actual_completion);
+    }
+
+    if (field === 'actual_completion' && value) {
+      const dlp = calcDLP(value);
+      updated.dlp_end_date = dlp.end;
+      updated.dlp_status = 'In Progress';
+    }
+
+    if (field === 'extra_amount' || field === 'awarded_cost') {
+      updated.revised_contract_value = (Number(updated.awarded_cost) || 0) + (Number(updated.extra_amount) || 0);
+    }
+
+    if (field === 'payment_released' || field === 'income_tax_deducted' || field === 'gst_tds_deducted' || field === 'other_deductions') {
+      updated.net_payment_released = (Number(updated.payment_released) || 0) - 
+        (Number(updated.income_tax_deducted) || 0) - 
+        (Number(updated.gst_tds_deducted) || 0) - 
+        (Number(updated.other_deductions) || 0);
+    }
+
+    if (field === 'total_bills_value' || field === 'payment_released') {
+      updated.payment_pending = (Number(updated.total_bills_value) || 0) - (Number(updated.payment_released) || 0);
+    }
+
+    setEditForm(updated);
+  };
+
+  const handleSave = async () => {
+    if (!editingRecord || !currentUser) return;
+    setSubmitting(true);
+    try {
+      await api.updateAwardedRecord(editingRecord.awarded_id, {
+        ...editForm,
+        last_updated: new Date().toISOString()
+      });
+      
+      await api.logActivity('UPDATE', 'AWARDED_WORKS', editingRecord.awarded_id, `Awarded work updated by ${currentUser.name}`, currentUser);
+      
+      setEditingRecord(null);
+      fetchData();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePaymentSave = async () => {
+    if (!paymentRecord || !paymentAmount || !currentUser) return;
+    setSubmitting(true);
+    try {
+      const amount = Number(paymentAmount);
+      const newReleased = (paymentRecord.payment_released || 0) + amount;
+      const newPending = (paymentRecord.awarded_cost || 0) - newReleased;
+
+      await api.updateAwardedRecord(paymentRecord.awarded_id, {
+        payment_released: newReleased,
+        payment_pending: newPending,
+        last_bill_date: paymentDate,
+        last_updated: new Date().toISOString()
+      });
+
+      await api.logActivity('PAYMENT_UPDATE', 'AWARDED_WORKS', paymentRecord.awarded_id, `Payment of ${fmtCurrency(amount)} released by ${currentUser.name}`, currentUser);
+
+      setPaymentRecord(null);
+      setPaymentAmount('');
+      fetchData();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleProgressSave = async () => {
+    if (!progressPopup || !currentUser) return;
+    try {
+      const val = progressPopup.value;
+      await api.updateAwardedRecord(progressPopup.id, {
+        physical_progress_percent: String(val),
+        overall_status: val >= 100 ? 'Completed' : 'In Progress',
+        last_updated: new Date().toISOString()
+      });
+
+      if (val >= 100) {
+        // Celebration logic could go here
+      }
+
+      setProgressPopup(null);
+      fetchData();
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleFileUpload = async (file: File, field: 'work_order_document' | 'completion_certificate') => {
+    if (!editingRecord) return;
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${editingRecord.awarded_id}_${field}_${Date.now()}.${fileExt}`;
+      const filePath = `awarded_works/${editingRecord.awarded_id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('meed-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('meed-documents')
+        .getPublicUrl(filePath);
+
+      updateField(field, publicUrl);
+    } catch (err: any) {
+      alert("Upload failed: " + err.message);
+    }
+  };
+
+  const filteredRecords = records.filter(r => {
+    const matchesSearch = (r.name_of_work?.toLowerCase() || '').includes(search.toLowerCase()) ||
+                         (r.tender_no?.toLowerCase() || '').includes(search.toLowerCase()) ||
+                         (r.contractor_name?.toLowerCase() || '').includes(search.toLowerCase());
+    const matchesStatus = statusFilter === 'All' || r.overall_status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  if (loading) return <div className="p-10 text-center">Loading awarded records...</div>;
+  if (error) return <ErrorMessage error={error} onRetry={fetchData} />;
+
+  return (
+    <div className="space-y-6 pb-20">
+      {/* Header & Filters */}
+      <div className="bg-white rounded-[16px] p-6 border border-[var(--border)] shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex-1">
+            <h2 className="font-display text-lg font-bold text-[var(--navy)]">Awarded Works</h2>
+            <p className="text-xs text-[var(--muted)] mt-0.5">Manage contract execution, progress, and payments</p>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+              <input 
+                type="text" 
+                placeholder="Search works..." 
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 pr-4 py-2 bg-[var(--paper)] border border-[var(--border)] rounded-[12px] text-[13px] outline-none focus:border-[var(--teal)] focus:bg-white transition-all w-full md:w-[200px]"
+              />
+            </div>
+
+            <select 
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-4 py-2 bg-white border border-[var(--border)] rounded-[12px] text-[13px] font-semibold outline-none focus:border-[var(--teal)]"
+            >
+              <option value="All">All Status</option>
+              <option value="Not Started">Not Started</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Delayed">Delayed</option>
+              <option value="Completed">Completed</option>
+              <option value="On Hold">On Hold</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Table */}
+      <div className="bg-white rounded-[16px] border border-[var(--border)] shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse min-w-[1200px]">
+            <thead>
+              <tr className="bg-[var(--paper)]">
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Tender No.</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Name of Work</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Contractor</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Awarded Cost</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">WO Date</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Scheduled Comp.</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Delay</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Progress</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Payment</th>
+                <th className="px-6 py-3 text-left text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Status</th>
+                <th className="px-6 py-3 text-right text-[10.5px] font-bold text-[var(--muted2)] uppercase tracking-wider border-b border-[var(--border)]">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {filteredRecords.map((r) => {
+                const daysLeft = Math.ceil((new Date(r.scheduled_completion).getTime() - new Date().getTime()) / 86400000);
+                const delayDays = Number(r.delay_days) || 0;
+                const delayColor = delayDays > 0 ? 'text-[var(--rose)]' : daysLeft < 30 ? 'text-[var(--amber)]' : 'text-[var(--teal)]';
+                const prog = Number(r.physical_progress_percent) || 0;
+                const progColor = prog >= 75 ? 'bg-[var(--teal)]' : prog >= 40 ? 'bg-[var(--amber)]' : 'bg-[var(--rose)]';
+                const payPct = ((r.payment_released || 0) / (r.awarded_cost || 1)) * 100;
+
+                return (
+                  <tr key={r.awarded_id} className="hover:bg-[var(--teal)]/[0.02] transition-colors group">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <strong className="text-[12px] text-[var(--navy)]">{r.tender_no}</strong>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-[12px] font-bold text-[var(--navy)] line-clamp-2 max-w-[200px] leading-tight">
+                        {r.name_of_work}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-[11px] font-semibold text-[var(--muted2)] truncate max-w-[120px]">{r.contractor_name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap font-mono text-[12px] font-bold text-[var(--navy)]">
+                      {fmtCurrency(r.awarded_cost)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-[11px] font-medium text-[var(--muted2)]">
+                      {r.work_order_date ? format(new Date(r.work_order_date), 'dd-MMM-yy') : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-[11px] font-medium text-[var(--muted2)]">
+                      {r.scheduled_completion ? format(new Date(r.scheduled_completion), 'dd-MMM-yy') : '-'}
+                    </td>
+                    <td className={cn("px-6 py-4 whitespace-nowrap text-[11px] font-bold", delayColor)}>
+                      {delayDays > 0 ? `${delayDays}d late` : `${Math.max(0, daysLeft)}d left`}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div 
+                        className="cursor-pointer group/prog"
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setProgressPopup({ id: r.awarded_id, value: prog, x: rect.left, y: rect.bottom + window.scrollY });
+                        }}
+                      >
+                        <div className="w-20 h-1.5 bg-[var(--paper)] rounded-full overflow-hidden mb-1">
+                          <div className={cn("h-full rounded-full transition-all duration-500", progColor)} style={{ width: `${prog}%` }} />
+                        </div>
+                        <div className="text-[10px] font-bold text-[var(--navy)]">{prog}%</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="w-20 h-1.5 bg-[var(--paper)] rounded-full overflow-hidden mb-1">
+                        <div className="h-full bg-[var(--teal)] rounded-full" style={{ width: `${payPct}%` }} />
+                      </div>
+                      <div className="text-[9px] font-bold text-[var(--muted)]">{fmtCurrency(r.payment_released)}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-[10px] font-bold border capitalize",
+                        r.overall_status === 'Completed' ? "bg-green-50 text-green-700 border-green-100" :
+                        r.overall_status === 'Delayed' ? "bg-rose-50 text-rose-700 border-rose-100" :
+                        r.overall_status === 'In Progress' ? "bg-sky-50 text-sky-700 border-sky-100" :
+                        "bg-slate-50 text-slate-700 border-slate-100"
+                      )}>
+                        {r.overall_status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => handleEdit(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                          <PenLine size={14} />
+                        </button>
+                        <button onClick={() => setPaymentRecord(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                          <IndianRupee size={14} />
+                        </button>
+                        <button onClick={() => navigate('/bg')} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                          <Shield size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 5-TAB EDIT MODAL */}
+      {editingRecord && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            {/* Tabs Header */}
+            <div className="bg-white border-b border-slate-100">
+              <div className="flex items-center justify-between px-6 py-3">
+                <h3 className="font-bold text-[var(--navy)]">Edit Awarded Work</h3>
+                <button onClick={() => setEditingRecord(null)} className="p-1.5 hover:bg-slate-100 rounded-full transition-colors">
+                  <X size={20} className="text-slate-400" />
+                </button>
+              </div>
+              <div className="flex px-6 gap-8">
+                {['Contract', 'Progress', 'Payments', 'BG/DLP', 'Closure'].map((tab, i) => (
+                  <button 
+                    key={tab}
+                    onClick={() => setActiveTab(i)}
+                    className={cn(
+                      "pb-3 text-xs font-bold uppercase tracking-wider transition-all relative",
+                      activeTab === i ? "text-[var(--teal)]" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    {tab}
+                    {activeTab === i && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--teal)] rounded-full" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Info Strip */}
+            <div className="bg-[var(--navy)] px-6 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-[10px] text-white/70 font-medium">
+              <span>ID: <b className="text-white">{editingRecord.awarded_id}</b></span>
+              <span>Tender: <b className="text-white">{editingRecord.tender_no}</b></span>
+              <span>Division: <b className="text-white">{editingRecord.division}</b></span>
+              <span>Section: <b className="text-white">{editingRecord.section}</b></span>
+              <span>Authority: <b className="text-white">{editingRecord.competent_authority}</b></span>
+            </div>
+
+            {/* Tab Content */}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30">
+              {activeTab === 0 && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Contractor Details</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Contractor Name" value={editForm.contractor_name} onChange={v => updateField('contractor_name', v)} />
+                        <Field label="Contact Person" value={editForm.contact_person} onChange={v => updateField('contact_person', v)} />
+                        <Field label="Mobile" value={editForm.contractor_mobile} onChange={v => updateField('contractor_mobile', v)} />
+                        <Field label="Address" value={editForm.contractor_address} onChange={v => updateField('contractor_address', v)} />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Work Order / Agreement</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="WO No." value={editForm.work_order_no} onChange={v => updateField('work_order_no', v)} />
+                        <Field label="WO Date" type="date" value={editForm.work_order_date} onChange={v => updateField('work_order_date', v)} />
+                        <Field label="LOA No." value={editForm.loa_no} onChange={v => updateField('loa_no', v)} />
+                        <Field label="LOA Date" type="date" value={editForm.loa_date} onChange={v => updateField('loa_date', v)} />
+                        <Field label="Agreement No." value={editForm.agreement_no} onChange={v => updateField('agreement_no', v)} />
+                        <Field label="Agreement Date" type="date" value={editForm.agreement_date} onChange={v => updateField('agreement_date', v)} />
+                        <Field label="NIT No." value={editForm.nit_no} onChange={v => updateField('nit_no', v)} />
+                        <SelectField label="Integrity Pact" value={editForm.integrity_pact} options={['Yes', 'No', 'NA']} onChange={v => updateField('integrity_pact', v)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Contract Value</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <DisplayField label="Estimated Cost" value={fmtCurrency(editForm.estimated_cost || 0)} />
+                        <DisplayField label="Awarded Cost" value={fmtCurrency(editForm.awarded_cost || 0)} />
+                        <DisplayField 
+                          label="L1% vs Estimate" 
+                          value={editForm.l1_percentage || '0%'} 
+                          color={editForm.l1_percentage?.includes('-') ? 'text-[var(--teal)]' : 'text-[var(--rose)]'} 
+                        />
+                        <Field label="Negotiated Amount" type="number" value={editForm.negotiated_amount} onChange={v => updateField('negotiated_amount', v)} />
+                        <Field label="Extra/Excess Amount" type="number" value={editForm.extra_amount} onChange={v => updateField('extra_amount', v)} />
+                        <DisplayField label="Revised Contract Value" value={fmtCurrency(editForm.revised_contract_value || 0)} />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Deposits & Mobilisation</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Security Deposit" type="number" value={editForm.security_deposit} onChange={v => updateField('security_deposit', v)} />
+                        <Field label="EMD Amount" type="number" value={editForm.emd_amount} onChange={v => updateField('emd_amount', v)} />
+                        <SelectField label="NDA Agreement" value={editForm.nda_agreement} options={['Yes', 'No']} onChange={v => updateField('nda_agreement', v)} />
+                        <Field label="Mobilisation Adv." type="number" value={editForm.mobilisation_advance} onChange={v => updateField('mobilisation_advance', v)} />
+                        <Field label="Advance Recovered" type="number" value={editForm.advance_recovered} onChange={v => updateField('advance_recovered', v)} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 1 && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Timeline</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Start Date" type="date" value={editForm.start_date} onChange={v => updateField('start_date', v)} />
+                        <Field label="Contract Period (Days)" type="number" value={editForm.completion_period_days} onChange={v => updateField('completion_period_days', v)} />
+                        <DisplayField label="Scheduled Completion" value={editForm.scheduled_completion ? format(new Date(editForm.scheduled_completion), 'dd-MMM-yyyy') : '-'} />
+                        <Field label="Extension Count" type="number" value={editForm.extension_count} onChange={v => updateField('extension_count', v)} />
+                        <Field label="EOT Days" type="number" value={editForm.eot_days} onChange={v => updateField('eot_days', v)} />
+                        <DisplayField label="Revised Completion" value={editForm.revised_completion ? format(new Date(editForm.revised_completion), 'dd-MMM-yyyy') : '-'} />
+                        <Field label="Actual Completion" type="date" value={editForm.actual_completion} onChange={v => updateField('actual_completion', v)} />
+                        <DisplayField label="Delay Days" value={`${editForm.delay_days || 0} days`} color={(editForm.delay_days || 0) > 0 ? 'text-[var(--rose)]' : 'text-[var(--teal)]'} />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Progress & Status</h4>
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Physical Progress %</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="range" min="0" max="100" step="1"
+                              value={Number(editForm.physical_progress_percent) || 0}
+                              onChange={e => updateField('physical_progress_percent', e.target.value)}
+                              className="flex-1 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[var(--teal)]"
+                            />
+                            <span className="text-sm font-bold text-[var(--navy)] w-10">{editForm.physical_progress_percent || 0}%</span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <SelectField label="Overall Status" value={editForm.overall_status} options={['Not Started', 'In Progress', 'On Hold', 'Delayed', 'Completed']} onChange={v => updateField('overall_status', v)} />
+                          <SelectField label="Delay Reason" value={editForm.delay_reason} options={['Site Clearance Pending', 'Material Delay', 'Contractor Default', 'Design Change', 'Monsoon', 'Statutory Approval Pending', 'Fund Constraint', 'Other']} onChange={v => updateField('delay_reason', v)} />
+                          <SelectField label="LD Applicable" value={editForm.ld_applicable} options={['Yes', 'No', 'Waived']} onChange={v => updateField('ld_applicable', v)} />
+                          <Field label="LD Amount" type="number" value={editForm.ld_amount} onChange={v => updateField('ld_amount', v)} />
+                          <SelectField label="Performance Rating" value={editForm.performance_rating} options={['Excellent', 'Good', 'Satisfactory', 'Below Average', 'Poor']} onChange={v => updateField('performance_rating', v)} />
+                          <Field label="Last Site Visit" type="date" value={editForm.last_site_visit} onChange={v => updateField('last_site_visit', v)} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 2 && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="grid grid-cols-4 gap-4">
+                    <SummaryCard label="Awarded Cost" value={fmtCurrency(editForm.awarded_cost || 0)} color="bg-[var(--navy)]" />
+                    <SummaryCard label="Bills Submitted" value={fmtCurrency(editForm.total_bills_value || 0)} color="bg-sky-600" />
+                    <SummaryCard label="Released" value={fmtCurrency(editForm.payment_released || 0)} color="bg-[var(--teal)]" />
+                    <SummaryCard label="Pending" value={fmtCurrency(editForm.payment_pending || 0)} color="bg-[var(--rose)]" />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Payment Tracking</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Total Bills Submitted" type="number" value={editForm.total_bills_value} onChange={v => updateField('total_bills_value', v)} />
+                        <Field label="Date of Last Bill" type="date" value={editForm.last_bill_date} onChange={v => updateField('last_bill_date', v)} />
+                        <DisplayField label="Payment Released" value={fmtCurrency(editForm.payment_released || 0)} />
+                        <DisplayField label="Payment Pending" value={fmtCurrency(editForm.payment_pending || 0)} color="text-[var(--rose)]" />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">EE Proposal</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Proposal No." value={editForm.ee_proposal_no} onChange={v => updateField('ee_proposal_no', v)} />
+                        <Field label="Proposal Date" type="date" value={editForm.ee_proposal_date} onChange={v => updateField('ee_proposal_date', v)} />
+                        <Field label="Proposal Amount" type="number" value={editForm.ee_proposal_amount} onChange={v => updateField('ee_proposal_amount', v)} />
+                        <SelectField label="Proposal Status" value={editForm.ee_proposal_status} options={['Not Applicable', 'Draft', 'Submitted', 'Approved', 'Rejected', 'Returned']} onChange={v => updateField('ee_proposal_status', v)} />
+                        <Field label="Approval Date" type="date" value={editForm.ee_approval_date} onChange={v => updateField('ee_approval_date', v)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Deductions</h4>
+                    <div className="grid grid-cols-4 gap-4">
+                      <Field label="Income Tax" type="number" value={editForm.income_tax_deducted} onChange={v => updateField('income_tax_deducted', v)} />
+                      <Field label="GST TDS" type="number" value={editForm.gst_tds_deducted} onChange={v => updateField('gst_tds_deducted', v)} />
+                      <Field label="Other Deductions" type="number" value={editForm.other_deductions} onChange={v => updateField('other_deductions', v)} />
+                      <DisplayField label="Net Payment Released" value={fmtCurrency(editForm.net_payment_released || 0)} color="text-[var(--teal)]" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 3 && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Defect Liability Period</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <DisplayField label="DLP Start Date" value={editForm.actual_completion ? format(new Date(editForm.actual_completion), 'dd-MMM-yyyy') : '-'} />
+                        <DisplayField label="DLP End Date" value={editForm.dlp_end_date ? format(new Date(editForm.dlp_end_date), 'dd-MMM-yyyy') : '-'} />
+                        <SelectField label="DLP Status" value={editForm.dlp_status} options={['Not Started', 'In Progress', 'Completed', 'Extended']} onChange={v => updateField('dlp_status', v)} />
+                        <div className="col-span-2">
+                          <Field label="DLP Remarks" value={editForm.dlp_remarks} onChange={v => updateField('dlp_remarks', v)} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">SD Refund / BG Release</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="SD Refund Date" type="date" value={editForm.sd_refund_date} onChange={v => updateField('sd_refund_date', v)} />
+                        <Field label="SD Refund Amount" type="number" value={editForm.sd_refund_amount} onChange={v => updateField('sd_refund_amount', v)} />
+                        <Field label="PBG Release Date" type="date" value={editForm.pbg_release_date} onChange={v => updateField('pbg_release_date', v)} />
+                        <Field label="PBG Release Letter" value={editForm.pbg_release_letter} onChange={v => updateField('pbg_release_letter', v)} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 4 && (
+                <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Testing & Handover</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <SelectField label="T&C Status" value={editForm.test_commissioning_status} options={['Pending', 'Done', 'Not Applicable']} onChange={v => updateField('test_commissioning_status', v)} />
+                        <Field label="T&C Date" type="date" value={editForm.tc_date} onChange={v => updateField('tc_date', v)} />
+                        <SelectField label="As-Built Drawing" value={editForm.as_built_drawing} options={['Pending', 'Submitted', 'Not Applicable']} onChange={v => updateField('as_built_drawing', v)} />
+                        <SelectField label="Handing Over Status" value={editForm.handing_over_status} options={['Not Done', 'Partially Done', 'Done']} onChange={v => updateField('handing_over_status', v)} />
+                        <Field label="Handing Over Date" type="date" value={editForm.handing_over_date} onChange={v => updateField('handing_over_date', v)} />
+                        <SelectField label="Asset Capitalisation" value={editForm.asset_capitalisation} options={['Yes', 'No', 'Not Applicable']} onChange={v => updateField('asset_capitalisation', v)} />
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Final Account</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Final Bill Amount" type="number" value={editForm.final_bill_amount} onChange={v => updateField('final_bill_amount', v)} />
+                        <Field label="Final Bill Date" type="date" value={editForm.final_bill_date} onChange={v => updateField('final_bill_date', v)} />
+                        <SelectField label="Final Account Status" value={editForm.final_account_status} options={['Pending', 'Under Review', 'Settled']} onChange={v => updateField('final_account_status', v)} />
+                        <Field label="Closure Date" type="date" value={editForm.closure_date} onChange={v => updateField('closure_date', v)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Documents</h4>
+                    <div className="grid grid-cols-2 gap-6">
+                      <FileZone 
+                        label="Work Order Document" 
+                        url={editForm.work_order_document} 
+                        onUpload={f => handleFileUpload(f, 'work_order_document')} 
+                        onClear={() => updateField('work_order_document', '')}
+                      />
+                      <FileZone 
+                        label="Completion Certificate" 
+                        url={editForm.completion_certificate} 
+                        onUpload={f => handleFileUpload(f, 'completion_certificate')} 
+                        onClear={() => updateField('completion_certificate', '')}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Remarks</label>
+                    <textarea 
+                      value={editForm.remarks || ''}
+                      onChange={e => updateField('remarks', e.target.value)}
+                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-[var(--teal)] outline-none min-h-[100px]"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 font-medium italic">
+                Last saved: {editForm.last_updated ? format(new Date(editForm.last_updated), 'dd MMM yyyy HH:mm') : 'Never'}
+              </span>
+              <div className="flex gap-3">
+                <button onClick={() => setEditingRecord(null)} className="px-5 py-2 text-slate-600 font-bold text-sm hover:bg-slate-100 rounded-xl transition-all">
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSave}
+                  disabled={submitting}
+                  className="flex items-center gap-2 px-6 py-2 bg-[var(--teal)] text-white rounded-xl font-bold text-sm hover:bg-[var(--teal2)] transition-all shadow-md disabled:opacity-50"
+                >
+                  {submitting ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAYMENT MODAL */}
+      {paymentRecord && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-[var(--navy)]">Release Payment</h3>
+              <button onClick={() => setPaymentRecord(null)} className="p-1 hover:bg-slate-100 rounded-full">
+                <X size={18} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 p-4 rounded-xl space-y-2">
+                <p className="text-xs font-bold text-[var(--navy)] line-clamp-2">{paymentRecord.name_of_work}</p>
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-medium">
+                  <div className="text-slate-500">Awarded Cost: <b className="text-[var(--navy)]">{fmtCurrency(paymentRecord.awarded_cost)}</b></div>
+                  <div className="text-slate-500">Released: <b className="text-[var(--teal)]">{fmtCurrency(paymentRecord.payment_released)}</b></div>
+                  <div className="text-slate-500">Pending: <b className="text-[var(--rose)]">{fmtCurrency(paymentRecord.payment_pending)}</b></div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Payment Amount (₹)</label>
+                  <input 
+                    type="number"
+                    value={paymentAmount}
+                    onChange={e => setPaymentAmount(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-[var(--teal)] outline-none font-mono font-bold"
+                    placeholder="Enter amount..."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Bill Date</label>
+                  <input 
+                    type="date"
+                    value={paymentDate}
+                    onChange={e => setPaymentDate(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:border-[var(--teal)] outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setPaymentRecord(null)} className="flex-1 py-2 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-xl transition-all">
+                Cancel
+              </button>
+              <button 
+                onClick={handlePaymentSave}
+                disabled={submitting || !paymentAmount}
+                className="flex-1 py-2 bg-[var(--teal)] text-white rounded-xl font-bold text-sm hover:bg-[var(--teal2)] transition-all shadow-md disabled:opacity-50"
+              >
+                {submitting ? <Loader2 size={18} className="animate-spin mx-auto" /> : 'Confirm Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INLINE PROGRESS POPUP */}
+      {progressPopup && (
+        <>
+          <div className="fixed inset-0 z-[120]" onClick={() => setProgressPopup(null)} />
+          <div 
+            className="fixed z-[130] bg-white rounded-xl shadow-xl border border-slate-100 p-4 w-[200px] animate-in zoom-in-95 duration-150"
+            style={{ left: progressPopup.x, top: progressPopup.y + 8 }}
+          >
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Update Progress</p>
+            <div className="flex flex-col items-center gap-4">
+              <span className="text-3xl font-black text-[var(--teal)]">{progressPopup.value}%</span>
+              <input 
+                type="range" min="0" max="100" step="5"
+                value={progressPopup.value}
+                onChange={e => setProgressPopup({ ...progressPopup, value: Number(e.target.value) })}
+                className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[var(--teal)]"
+              />
+              <div className="flex gap-2 w-full">
+                <button onClick={() => setProgressPopup(null)} className="flex-1 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-50 rounded-lg">Cancel</button>
+                <button onClick={handleProgressSave} className="flex-1 py-1.5 text-[10px] font-bold bg-[var(--teal)] text-white rounded-lg shadow-sm">Save</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// --- HELPER COMPONENTS ---
+
+function Field({ label, value, type = 'text', onChange }: { label: string, value: any, type?: string, onChange: (v: any) => void }) {
+  const val = type === 'date' && value ? format(new Date(value), 'yyyy-MM-dd') : value || '';
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <input 
+        type={type}
+        value={val}
+        onChange={e => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
+        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:border-[var(--teal)] outline-none transition-all"
+      />
+    </div>
+  );
+}
+
+function SelectField({ label, value, options, onChange }: { label: string, value: any, options: string[], onChange: (v: any) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <select 
+        value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:border-[var(--teal)] outline-none transition-all"
+      >
+        <option value="">Select...</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function DisplayField({ label, value, color = 'text-[var(--navy)]' }: { label: string, value: any, color?: string }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      <div className={cn("w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[13px] font-bold", color)}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, color }: { label: string, value: string, color: string }) {
+  return (
+    <div className={cn("p-3 rounded-xl text-white shadow-sm", color)}>
+      <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">{label}</p>
+      <p className="text-sm font-black mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+function FileZone({ label, url, onUpload, onClear }: { label: string, url?: string, onUpload: (f: File) => void, onClear: () => void }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{label}</label>
+      {url ? (
+        <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-100 rounded-xl">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <CheckCircle2 size={16} className="text-[var(--teal)] shrink-0" />
+            <span className="text-[11px] font-bold text-[var(--teal)] truncate">Document Uploaded</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <a href={url} target="_blank" rel="noreferrer" className="p-1.5 hover:bg-white rounded-lg text-[var(--teal)] transition-all">
+              <ExternalLink size={14} />
+            </a>
+            <button onClick={onClear} className="p-1.5 hover:bg-white rounded-lg text-[var(--rose)] transition-all">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 rounded-xl hover:border-[var(--teal)] hover:bg-slate-50 transition-all cursor-pointer group">
+          <Upload size={20} className="text-slate-300 group-hover:text-[var(--teal)] mb-1" />
+          <span className="text-[10px] font-bold text-slate-400 group-hover:text-[var(--teal)]">Click to upload</span>
+          <input type="file" className="hidden" onChange={e => e.target.files?.[0] && onUpload(e.target.files[0])} />
+        </label>
+      )}
+    </div>
+  );
+}
