@@ -10,6 +10,7 @@ interface TopbarProps {
   onOpenSearch: () => void;
   onOpenAlerts: () => void;
   streak: number;
+  sidebarCollapsed: boolean;
 }
 
 export default function Topbar({ 
@@ -18,7 +19,8 @@ export default function Topbar({
   onRefresh, 
   onOpenSearch,
   onOpenAlerts,
-  streak 
+  streak,
+  sidebarCollapsed
 }: TopbarProps) {
   const [time, setTime] = useState(new Date());
 
@@ -28,7 +30,11 @@ export default function Topbar({
   }, []);
 
   return (
-    <header className="fixed top-0 left-0 md:left-[var(--sidebar)] right-0 h-[var(--topbar)] bg-white/80 backdrop-blur-xl border-b border-slate-200/60 flex items-center px-6 gap-4 z-[100]">
+    <header className={cn(
+      "fixed top-0 right-0 h-[var(--topbar)] bg-white/80 backdrop-blur-xl border-b border-slate-200/60 flex items-center px-6 gap-4 z-[100] transition-all duration-300",
+      "left-0",
+      sidebarCollapsed ? "md:left-16" : "md:left-[268px]"
+    )}>
       <button 
         className="w-10 h-10 rounded-xl border border-slate-200 bg-white grid place-items-center text-slate-500 transition-all hover:border-[#00C9A7] hover:text-[#00C9A7] hover:bg-[#00C9A7]/5 md:hidden"
         onClick={onToggleSidebar}

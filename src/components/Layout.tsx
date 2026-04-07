@@ -5,6 +5,7 @@ import Topbar from './Topbar';
 import AlertPanel from './AlertPanel';
 import CommandPalette from './CommandPalette';
 import { User } from '../types';
+import { cn } from '../lib/utils';
 
 interface LayoutProps {
   user: User;
@@ -28,7 +29,14 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebar_collapsed') === 'true';
+  });
   const location = useLocation();
+
+  useEffect(() => {
+    localStorage.setItem('sidebar_collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -51,6 +59,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         onLogout={onLogout} 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
       
       <Topbar 
@@ -60,6 +70,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenAlerts={() => setIsAlertsOpen(true)}
         streak={user.streak || 0}
+        sidebarCollapsed={sidebarCollapsed}
       />
 
       <AlertPanel 
@@ -72,7 +83,10 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         onClose={() => setIsSearchOpen(false)} 
       />
 
-      <main className="md:ml-[var(--sidebar)] pt-[var(--topbar)] min-h-screen">
+      <main className={cn(
+        "pt-[var(--topbar)] min-h-screen transition-all duration-300",
+        sidebarCollapsed ? "md:ml-16" : "md:ml-[268px]"
+      )}>
         <div className="p-6 animate-[fadeUp_0.3s_ease]">
           <Outlet />
         </div>
