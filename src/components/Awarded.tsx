@@ -3,15 +3,46 @@ import {
   Search, Filter, MoreVertical, Calendar,
   IndianRupee, Tag, CheckCircle2, Clock,
   AlertCircle, TrendingUp, X, ChevronRight, ChevronLeft, Save, Loader2,
-  Shield, PenLine, Plus, Upload, ExternalLink, Trash2
+  Shield, PenLine, Plus, Upload, ExternalLink, Trash2,
+  FileDown, Printer, Download
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { AwardedRecord, User } from '../types';
+import { AwardedRecord, User, MasterData } from '../types';
 import { format, addDays, addMonths, differenceInDays } from 'date-fns';
 import { api } from '../services/api';
 import { supabase } from '../lib/supabase';
 import ErrorMessage from './ErrorMessage';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+const EXPORT_FILENAME = 'Awarded_Works_Register';
+const EXPORT_TITLE = 'Awarded Works Management Register';
+const STATUS_COLUMN = 'overall_status';
+const STATUS_OPTIONS = [
+  'Not Started','In Progress','Delayed','Completed','On Hold'
+];
+const ALL_COLUMNS = [
+  { key: 'awarded_id',         label: 'Awarded ID' },
+  { key: 'tender_no',          label: 'Tender No' },
+  { key: 'name_of_work',       label: 'Name of Work' },
+  { key: 'division',           label: 'Division' },
+  { key: 'section',            label: 'Section' },
+  { key: 'contractor_name',    label: 'Contractor' },
+  { key: 'awarded_cost',       label: 'Awarded Cost' },
+  { key: 'work_order_no',      label: 'WO No' },
+  { key: 'work_order_date',    label: 'WO Date' },
+  { key: 'start_date',         label: 'Start Date' },
+  { key: 'scheduled_completion', label: 'Scheduled Comp' },
+  { key: 'revised_completion', label: 'Revised Comp' },
+  { key: 'actual_completion',  label: 'Actual Comp' },
+  { key: 'physical_progress_percent', label: 'Progress %' },
+  { key: 'overall_status',     label: 'Status' },
+  { key: 'payment_released',   label: 'Payment Released' },
+  { key: 'payment_pending',    label: 'Payment Pending' },
+  { key: 'last_updated',       label: 'Last Updated' },
+];
 
 export default function Awarded() {
   const navigate = useNavigate();
@@ -21,7 +52,22 @@ export default function Awarded() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [divisions, setDivisions] = useState<MasterData[]>([]);
 
+  // Export Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFilters, setExportFilters] = useState({
+    division: '',
+    section: '',
+    status: '',
+    dateFrom: '',
+    dateTo: ''
+  });
+  const [selectedCols, setSelectedCols] = useState<string[]>([]);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewed, setPreviewed] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  
   // Modals State
   const [editingRecord, setEditingRecord] = useState<AwardedRecord | null>(null);
   const [activeTab, setActiveTab] = useState(0);
@@ -47,7 +93,161 @@ export default function Awarded() {
     fetchData();
     const user = localStorage.getItem('meed_user');
     if (user) setCurrentUser(JSON.parse(user));
+    api.getDivisions().then(setDivisions).catch(console.error);
   }, []);
+
+  const previewQuery = async () => {
+    setExporting(true);
+    try {
+      let query = supabase
+        .from('awarded_works')
+        .select('*', { count: 'exact', head: true });
+      
+      if (exportFilters.division) 
+        query = query.eq('division', exportFilters.division);
+      if (exportFilters.section) 
+        query = query.ilike('section', `%${exportFilters.section}%`);
+      if (exportFilters.status) 
+        query = query.eq(STATUS_COLUMN, exportFilters.status);
+      if (exportFilters.dateFrom) 
+        query = query.gte('last_updated', exportFilters.dateFrom);
+      if (exportFilters.dateTo) 
+        query = query.lte('last_updated', exportFilters.dateTo + 'T23:59:59');
+      
+      const { count } = await query;
+      setPreviewCount(count || 0);
+      setPreviewed(true);
+    } catch (err: any) {
+      console.error("Preview failed", err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const fetchExportData = async () => {
+    let query = supabase
+      .from('awarded_works')
+      .select('*');
+    
+    if (exportFilters.division) 
+      query = query.eq('division', exportFilters.division);
+    if (exportFilters.section) 
+      query = query.ilike('section', `%${exportFilters.section}%`);
+    if (exportFilters.status) 
+      query = query.eq(STATUS_COLUMN, exportFilters.status);
+    if (exportFilters.dateFrom) 
+      query = query.gte('last_updated', exportFilters.dateFrom);
+    if (exportFilters.dateTo) 
+      query = query.lte('last_updated', exportFilters.dateTo + 'T23:59:59');
+    
+    const { data } = await query.order('last_updated', { ascending: false });
+    return data || [];
+  };
+
+  const handleExcelExport = async () => {
+    setExporting(true);
+    try {
+      const data = await fetchExportData();
+      const cols = ALL_COLUMNS.filter(c => selectedCols.includes(c.key));
+      const headers = cols.map(c => c.label);
+      const rows = data.map(row => cols.map(c => row[c.key] ?? ''));
+      
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      const headerRange = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c: col });
+        if (!ws[addr]) continue;
+        ws[addr].s = {
+          font: { bold: true, color: { rgb: 'FFFFFF' } },
+          fill: { fgColor: { rgb: '0B1F3A' } },
+          alignment: { horizontal: 'center' }
+        };
+      }
+      
+      ws['!cols'] = cols.map((c) => ({
+        wch: Math.max(c.label.length, ...data.map(row => String(row[c.key] ?? '').length)) + 2
+      }));
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      XLSX.writeFile(wb, `${EXPORT_FILENAME}.xlsx`);
+    } catch (err) {
+      console.error("Excel export failed", err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handlePDFExport = async () => {
+    setExporting(true);
+    try {
+      const data = await fetchExportData();
+      const cols = ALL_COLUMNS.filter(c => selectedCols.includes(c.key));
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      
+      doc.setFillColor(11, 31, 58);
+      doc.rect(0, 0, 297, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MbPA MEED Portal', 10, 9);
+      doc.setTextColor(0, 201, 167);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Mumbai Port Authority — Mechanical & Electrical Engineering Department', 10, 16);
+      
+      doc.setTextColor(11, 31, 58);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text(EXPORT_TITLE, 10, 32);
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      const now = new Date().toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+      
+      const filterParts = [];
+      if (exportFilters.division) filterParts.push(`Division: ${exportFilters.division}`);
+      if (exportFilters.section) filterParts.push(`Section: ${exportFilters.section}`);
+      if (exportFilters.status) filterParts.push(`Status: ${exportFilters.status}`);
+      if (exportFilters.dateFrom) filterParts.push(`From: ${exportFilters.dateFrom}`);
+      if (exportFilters.dateTo) filterParts.push(`To: ${exportFilters.dateTo}`);
+      const filterText = filterParts.length > 0 ? filterParts.join(' | ') : 'All records';
+      
+      doc.text(`Generated: ${now}  |  Records: ${data.length}  |  Filters: ${filterText}`, 10, 39);
+      doc.setDrawColor(0, 201, 167);
+      doc.setLineWidth(0.5);
+      doc.line(10, 42, 287, 42);
+      
+      autoTable(doc, {
+        startY: 46,
+        head: [cols.map(c => c.label)],
+        body: data.map(row => cols.map(c => String(row[c.key] ?? ''))),
+        headStyles: { fillColor: [11, 31, 58], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'left' },
+        bodyStyles: { fontSize: 7, textColor: [45, 55, 72] },
+        alternateRowStyles: { fillColor: [240, 244, 248] },
+        styles: { cellPadding: 2, lineColor: [226, 232, 240], lineWidth: 0.1, overflow: 'linebreak' },
+        margin: { left: 10, right: 10 }
+      });
+      
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`Page ${i} of ${pages}  |  MbPA MEED Portal  |  Confidential`, 148, 205, { align: 'center' });
+      }
+      
+      doc.save(`${EXPORT_FILENAME}.pdf`);
+    } catch (err) {
+      console.error("PDF export failed", err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // --- AUTO CALCULATIONS ---
   const fmtCurrency = (n: number) => {
@@ -248,6 +448,18 @@ export default function Awarded() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2.5">
+            <button 
+              onClick={() => {
+                setSelectedCols(ALL_COLUMNS.map(c => c.key));
+                setShowExportModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-[#0B1F3A] text-white rounded-[12px] text-[13px] font-bold hover:bg-[#1a2f4d] transition-all shadow-lg shadow-[#0B1F3A]/20"
+              title="Export Data"
+            >
+              <FileDown size={16} />
+              Export
+            </button>
+
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
               <input 
@@ -752,6 +964,177 @@ export default function Awarded() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[600px] overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="font-bold text-[#0B1F3A] text-lg">Export {EXPORT_TITLE} Data</h3>
+              <button 
+                onClick={() => {
+                  setShowExportModal(false);
+                  setExportFilters({ division: '', section: '', status: '', dateFrom: '', dateTo: '' });
+                  setPreviewCount(null);
+                  setPreviewed(false);
+                }} 
+                className="w-10 h-10 rounded-full hover:bg-slate-200/50 flex items-center justify-center text-slate-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto">
+              {/* Step 1: Filters */}
+              <div className="bg-slate-50 rounded-[24px] p-6 space-y-5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em]">Step 1 — Filter Records</label>
+                <div className="grid grid-cols-2 gap-5">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Division</label>
+                    <select 
+                      value={exportFilters.division}
+                      onChange={(e) => setExportFilters({...exportFilters, division: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#00C9A7] font-medium"
+                    >
+                      <option value="">All Divisions</option>
+                      {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Section</label>
+                    <input 
+                      type="text"
+                      placeholder="Search section..."
+                      value={exportFilters.section}
+                      onChange={(e) => setExportFilters({...exportFilters, section: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#00C9A7] font-medium"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Status</label>
+                    <select 
+                      value={exportFilters.status}
+                      onChange={(e) => setExportFilters({...exportFilters, status: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#00C9A7] font-medium"
+                    >
+                      <option value="">All Status</option>
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">From</label>
+                      <input 
+                        type="date"
+                        value={exportFilters.dateFrom}
+                        onChange={(e) => setExportFilters({...exportFilters, dateFrom: e.target.value})}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#00C9A7] font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">To</label>
+                      <input 
+                        type="date"
+                        value={exportFilters.dateTo}
+                        onChange={(e) => setExportFilters({...exportFilters, dateTo: e.target.value})}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[#00C9A7] font-medium"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2: Columns */}
+              <div className="bg-white border border-slate-100 rounded-[24px] p-6 space-y-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em]">Step 2 — Select Columns</label>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setSelectedCols(ALL_COLUMNS.map(c => c.key))}
+                      className="text-[10px] font-bold text-[#00C9A7] hover:underline uppercase tracking-widest"
+                    >
+                      Select All
+                    </button>
+                    <button 
+                      onClick={() => setSelectedCols([])}
+                      className="text-[10px] font-bold text-rose-500 hover:underline uppercase tracking-widest"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-y-3 gap-x-6">
+                  {ALL_COLUMNS.map(col => (
+                    <label key={col.key} className="flex items-center gap-2.5 cursor-pointer group">
+                      <input 
+                        type="checkbox"
+                        checked={selectedCols.includes(col.key)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedCols([...selectedCols, col.key]);
+                          else setSelectedCols(selectedCols.filter(k => k !== col.key));
+                        }}
+                        className="w-4 h-4 rounded-lg border-slate-200 text-[#00C9A7] focus:ring-[#00C9A7] transition-all"
+                      />
+                      <span className="text-[12px] font-medium text-slate-600 group-hover:text-[#0B1F3A] transition-colors">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 3: Preview & Export */}
+              <div className="space-y-6">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em]">Step 3 — Preview & Export</label>
+                
+                <button 
+                  onClick={previewQuery}
+                  disabled={exporting}
+                  className="w-full py-4 bg-[#00C9A7] text-[#0B1F3A] rounded-[20px] font-bold text-sm uppercase tracking-widest hover:bg-[#00C9A7]/90 transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-lg shadow-[#00C9A7]/10"
+                >
+                  {exporting ? <Loader2 size={18} className="animate-spin" /> : 'Preview Records'}
+                </button>
+
+                {previewed && (
+                  <div className={cn(
+                    "p-5 rounded-[20px] border flex items-center gap-4 animate-in fade-in slide-in-from-top-2 duration-300",
+                    previewCount && previewCount > 0 
+                      ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
+                      : "bg-rose-50 border-rose-100 text-rose-700"
+                  )}>
+                    {previewCount && previewCount > 0 ? (
+                      <>
+                        <CheckCircle2 size={20} />
+                        <p className="text-sm font-bold">Found <span className="text-lg">{previewCount}</span> records with <span className="text-lg">{selectedCols.length}</span> columns selected</p>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={20} />
+                        <p className="text-sm font-bold">No records match these filters. Adjust and try again.</p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-5">
+                  <button 
+                    onClick={handleExcelExport}
+                    disabled={!previewed || selectedCols.length === 0 || exporting || (previewCount === 0)}
+                    className="py-4 bg-emerald-600 text-white rounded-[20px] font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 shadow-lg shadow-emerald-500/10"
+                  >
+                    {exporting ? <Loader2 size={18} className="animate-spin" /> : <><Download size={18} /> Excel</>}
+                  </button>
+                  <button 
+                    onClick={handlePDFExport}
+                    disabled={!previewed || selectedCols.length === 0 || exporting || (previewCount === 0)}
+                    className="py-4 bg-rose-600 text-white rounded-[20px] font-bold text-xs uppercase tracking-widest hover:bg-rose-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 shadow-lg shadow-rose-500/10"
+                  >
+                    {exporting ? <Loader2 size={18} className="animate-spin" /> : <><Printer size={18} /> PDF</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
