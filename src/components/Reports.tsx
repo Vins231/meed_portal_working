@@ -106,8 +106,8 @@ export default function Reports() {
     try {
       const [planning, approval, tender, awarded, completed, breakdown] = await Promise.all([
         supabase.from('planning').select('plan_id', { count: 'exact', head: true }).neq('status', 'Submitted'),
-        supabase.from('under_approval').select('approval_id', { count: 'exact', head: true }).not('current_stage', 'in', '(Dropped,Tendered)'),
-        supabase.from('tender').select('tender_id', { count: 'exact', head: true }).not('current_stage', 'in', '(Awarded,Cancelled)'),
+        supabase.from('under_approval').select('approval_id', { count: 'exact', head: true }).not('current_stage', 'in', ['Dropped', 'Tendered']),
+        supabase.from('tender').select('tender_id', { count: 'exact', head: true }).not('current_stage', 'in', ['Awarded', 'Cancelled']),
         supabase.from('awarded_works').select('awarded_id', { count: 'exact', head: true }).neq('overall_status', 'Completed'),
         supabase.from('awarded_works').select('awarded_id', { count: 'exact', head: true }).eq('overall_status', 'Completed'),
         supabase.from('under_approval').select('current_stage')

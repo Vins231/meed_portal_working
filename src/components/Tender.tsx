@@ -4,7 +4,9 @@ import {
   FileText, Upload, CheckCircle2, 
   X, Loader2, ExternalLink, ArrowRight,
   TrendingDown, TrendingUp, AlertCircle,
-  FileDown, Printer, Download, Save, Lock
+  FileDown, Printer, Download, Save, Lock,
+  Trash2, Calendar, Clock, CloudUpload,
+  Hash, Layout, Award, ArrowRightCircle, CircleDashed
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { TenderRecord, BidderRecord, User, MasterData } from '../types';
@@ -43,13 +45,24 @@ const ALL_COLUMNS = [
 ];
 
 const STAGE_BADGES: Record<string, string> = {
+  'Tender Initiated': 'bg-slate-100 text-slate-700 border-slate-200',
   'Floating': 'bg-sky-100 text-sky-700 border-sky-200',
+  'Bids Received': 'bg-blue-100 text-blue-700 border-blue-200',
   'Technical Evaluation': 'bg-amber-100 text-amber-700 border-amber-200',
-  'Financial Opening': 'bg-purple-100 text-purple-700 border-purple-200',
+  'Price Bid Opened': 'bg-purple-100 text-purple-700 border-purple-200',
+  'Award Recommended': 'bg-emerald-100 text-emerald-700 border-emerald-200',
   'Award Approved': 'bg-green-100 text-green-700 border-green-200',
   'Awarded': 'bg-teal-100 text-teal-700 border-teal-200',
   'Cancelled': 'bg-rose-100 text-rose-700 border-rose-200'
 };
+
+const TENDER_TABS = [
+  { id: 0, label: '1. Published', icon: Layout },
+  { id: 1, label: '2. Bids Received', icon: Users },
+  { id: 2, label: '3. Technical', icon: CircleDashed },
+  { id: 3, label: '4. Price Bids', icon: Hash },
+  { id: 4, label: '5. Award', icon: Award },
+];
 
 const fmtCurrency = (n: number) => {
   if (!n) return 'Rs. 0';
@@ -97,15 +110,17 @@ export default function Tender() {
   const [showBidderModal, setShowBidderModal] = useState<TenderRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
 
-  // Bidder Modal State
+  // New Edit Modal State
+  const [activeTab, setActiveTab] = useState(0);
+  const [editForm, setEditForm] = useState<Partial<TenderRecord>>({});
   const [bidders, setBidders] = useState<BidderRecord[]>([]);
   const [loadingBidders, setLoadingBidders] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [newBidder, setNewBidder] = useState({
     bidder_name: '',
-    technical_status: 'Qualified' as const,
-    bid_amount: '',
-    disqualification_reason: ''
+    emd_status: 'Submitted'
   });
 
   const [showAwardConfirm, setShowAwardConfirm] = useState<TenderRecord | null>(null);
@@ -116,6 +131,25 @@ export default function Tender() {
     fetchData();
     api.getDivisions().then(setDivisions).catch(console.error);
   }, []);
+
+  const openEditModal = (record: TenderRecord) => {
+    setEditForm(record);
+    setShowEditModal(record);
+    setActiveTab(0);
+    fetchBidders(record.tender_id);
+  };
+
+  const fetchBidders = async (tenderId: string) => {
+    setLoadingBidders(true);
+    try {
+      const data = await api.getBidders(tenderId);
+      setBidders(data);
+    } catch (err: any) {
+      console.error("Error fetching bidders:", err);
+    } finally {
+      setLoadingBidders(false);
+    }
+  };
 
   const previewQuery = async () => {
     setExporting(true);
@@ -300,92 +334,268 @@ export default function Tender() {
     return 'Tender Initiated';
   };
 
+  const calculateRanks = (allBidders: BidderRecord[]) => {
+    const withAmounts = allBidders
+      .filter(b => b.bid_amount && b.bid_amount > 0)
+      .sort((a, b) => (a.bid_amount || 0) - (b.bid_amount || 0));
+    
+    return allBidders.map(b => {
+      if (!b.bid_amount || b.bid_amount <= 0) return { ...b, financial_rank: null };
+      const rank = withAmounts.findIndex(w => w.bidder_id === b.bidder_id) + 1;
+      return { ...b, financial_rank: rank > 0 ? `L${rank}` : null };
+    });
+  };
+
+  const handleTabSave = async () => {
+    if (!showEditModal || !editForm.tender_id || !currentUser) return;
+    setSaving(true);
+    try {
+      const autoStage = calcTenderStage(editForm);
+      const updateData: any = { 
+        ...editForm, 
+        current_stage: autoStage,
+        last_updated: new Date().toISOString()
+      };
+
+      // Tab 4: Price Bids - Calculate Ranks and L1 summary
+      if (activeTab === 3) {
+        const qualifiedBidders = bidders.filter(b => b.technical_status === 'Qualified');
+        const sorted = [...qualifiedBidders]
+          .filter(b => (b.bid_amount || 0) > 0)
+          .sort((a, b) => (a.bid_amount || 0) - (b.bid_amount || 0));
+        
+        if (sorted.length > 0) {
+          const l1 = sorted[0];
+          updateData.l1_bidder_name = l1.bidder_name;
+          updateData.l1_amount = l1.bid_amount;
+          
+          const est = editForm.estimated_cost || 0;
+          if (est > 0) {
+            const diff = (((l1.bid_amount || 0) - est) / est) * 100;
+            updateData.l1_percentage = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`;
+          }
+        }
+
+        // Save bidder ranks and prices
+        for (const b of bidders) {
+           if (b.technical_status === 'Qualified' && (b.bid_amount || 0) > 0) {
+              const rank = sorted.findIndex(s => s.bidder_id === b.bidder_id) + 1;
+              const financial_rank = rank > 0 ? `L${rank}` : null;
+              await supabase.from('tender_bidders').update({ 
+                bid_amount: b.bid_amount,
+                financial_rank,
+                percentage_vs_estimate: b.percentage_vs_estimate 
+              }).eq('bidder_id', b.bidder_id);
+           }
+        }
+      }
+
+      // Tab 3: Technical Evaluation - Save bidder technical status
+      if (activeTab === 2) {
+        for (const b of bidders) {
+          await supabase.from('tender_bidders').update({
+            technical_status: b.technical_status,
+            disqualification_reason: b.disqualification_reason
+          }).eq('bidder_id', b.bidder_id);
+        }
+        updateData.tc_qualified_count = bidders.filter(b => b.technical_status === 'Qualified').length;
+        updateData.tc_disqualified_count = bidders.filter(b => b.technical_status === 'Disqualified').length;
+      }
+
+      const { error } = await supabase
+        .from('tender')
+        .update(updateData)
+        .eq('tender_id', editForm.tender_id);
+
+      if (error) throw error;
+
+      await api.logActivity('UPDATE', 'TENDER', editForm.tender_id, `Updated Tender Tab ${activeTab + 1}: Stage advanced to ${autoStage}`, currentUser);
+
+      setLastSaved(new Date().toLocaleTimeString());
+      setSuccessMessage(`Tab ${activeTab + 1} saved successfully`);
+      fetchData();
+      
+      // Sync local form state
+      setEditForm(prev => ({ 
+        ...prev, 
+        ...updateData
+      }));
+
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleEditTender = async (e: React.FormEvent) => {
     e.preventDefault();
+    handleTabSave();
+  };
+
+  const handleFileUpload = async (
+    file: File, 
+    field: string,
+    pathSuffix: string
+  ) => {
     if (!showEditModal) return;
-    setSubmitting(true);
+    setSaving(true);
     try {
-      const autoStage = calcTenderStage(showEditModal);
-      const updateData = { ...showEditModal, current_stage: autoStage };
-
-      // If status is changed to Awarded manually, trigger the award logic
-      if (updateData.current_stage === 'Awarded') {
-        const db = await api.getTenderRecords();
-        const originalTender = db.find(t => t.tender_id === updateData.tender_id);
-        if (originalTender && originalTender.current_stage !== 'Awarded') {
-          // Check if it has an L1 bidder, if not, we might need to warn or handle it
-          if (!updateData.l1_bidder_name) {
-            throw new Error("Cannot move to Awarded without an L1 Bidder. Please use the 'Award' button in the table actions to properly award the tender.");
-          }
-          await api.moveToAwarded(updateData, currentUser!);
-        } else {
-          await api.updateTenderRecord(updateData.tender_id, updateData);
-        }
-      } else {
-        await api.updateTenderRecord(updateData.tender_id, updateData);
-      }
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${pathSuffix}_${Date.now()}.${fileExt}`;
+      const filePath = `tender/${showEditModal.tender_id}/${fileName}`;
       
-      setSuccessMessage("Tender updated successfully");
-      setShowEditModal(null);
-      fetchData();
+      const { error } = await supabase.storage
+        .from('meed-documents')
+        .upload(filePath, file);
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('meed-documents')
+        .getPublicUrl(filePath);
+      
+      setEditForm(prev => ({ ...prev, [field]: publicUrl }));
+      setSuccessMessage(`${field.replace(/_/g, ' ')} uploaded successfully`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleFileUpload = async (tenderId: string, file: File, field: 'tender_document' | 'gem_contract_order') => {
-    try {
-      setSubmitting(true);
-      const url = await api.uploadTenderFile(file, tenderId, field);
-      if (showEditModal) {
-        setShowEditModal({ ...showEditModal, [field]: url });
-      }
-      setSuccessMessage(`${field.replace('_', ' ')} uploaded!`);
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const loadBidders = async (tenderId: string) => {
-    setLoadingBidders(true);
-    try {
-      const data = await api.getBidders(tenderId);
-      setBidders(data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoadingBidders(false);
+      setSaving(false);
     }
   };
 
   const handleAddBidder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!showBidderModal || !currentUser) return;
-    setSubmitting(true);
+    if (!showEditModal || !currentUser || !newBidder.bidder_name) return;
+    setSaving(true);
     try {
-      await api.addBidder({
-        ...newBidder,
-        tender_id: showBidderModal.tender_id,
-        bid_amount: newBidder.technical_status === 'Qualified' ? Number(newBidder.bid_amount) : undefined,
-      }, currentUser);
+      const bidderId = `BID-${Date.now()}`;
+      const srNo = bidders.length + 1;
+
+      const { data, error } = await supabase
+        .from('tender_bidders')
+        .insert([{
+          bidder_id: bidderId,
+          tender_id: showEditModal.tender_id,
+          bidder_name: newBidder.bidder_name,
+          emd_status: newBidder.emd_status,
+          sr_no: srNo,
+          technical_status: null,
+          added_by: currentUser.name,
+          added_on: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
       
-      // Re-rank
-      await api.reRankBidders(showBidderModal.tender_id, showBidderModal.estimated_cost);
-      
-      setNewBidder({ bidder_name: '', technical_status: 'Qualified', bid_amount: '', disqualification_reason: '' });
-      loadBidders(showBidderModal.tender_id);
-      fetchData(); // Refresh main table for L1 info
+      setBidders([...bidders, data]);
+      setNewBidder({ bidder_name: '', emd_status: 'Submitted' });
+      setSuccessMessage("Bidder added successfully");
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
+  };
+
+  const deleteBidder = async (bidderId: string) => {
+    if (!window.confirm("Remove this bidder?")) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('tender_bidders')
+        .delete()
+        .eq('bidder_id', bidderId);
+
+      if (error) throw error;
+      
+      setBidders(bidders.filter(b => b.bidder_id !== bidderId));
+      setSuccessMessage("Bidder removed");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateBidderStatus = async (bidderId: string, status: string | null, reason: string) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('tender_bidders')
+        .update({ 
+          technical_status: status, 
+          disqualification_reason: reason 
+        })
+        .eq('bidder_id', bidderId);
+
+      if (error) throw error;
+      
+      setBidders(bidders.map(b => 
+        b.bidder_id === bidderId 
+          ? { ...b, technical_status: status, disqualification_reason: reason } 
+          : b
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAllBiddersStatus = async () => {
+    setSaving(true);
+    try {
+      for (const b of bidders) {
+        await supabase
+          .from('tender_bidders')
+          .update({ 
+            technical_status: b.technical_status, 
+            disqualification_reason: b.disqualification_reason 
+          })
+          .eq('bidder_id', b.bidder_id);
+      }
+      setSuccessMessage("All bidder statuses updated");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePriceEntry = (bidderId: string, amount: number) => {
+    const updated = bidders.map(b => {
+      if (b.bidder_id === bidderId) {
+        const est = editForm.estimated_cost || 0;
+        const pct = est > 0 ? ((amount - est) / est) * 100 : 0;
+        return { 
+          ...b, 
+          bid_amount: amount,
+          percentage_vs_estimate: pct.toFixed(2)
+        };
+      }
+      return b;
+    });
+
+    // Re-rank
+    const qualifiedWithPrice = updated
+      .filter(b => b.technical_status === 'Qualified' && b.bid_amount)
+      .sort((a, b) => (a.bid_amount || 0) - (b.bid_amount || 0));
+
+    const final = updated.map(b => {
+      if (b.technical_status === 'Qualified' && b.bid_amount) {
+        const rankIdx = qualifiedWithPrice.findIndex(q => q.bidder_id === b.bidder_id);
+        return { ...b, financial_rank: `L${rankIdx + 1}` };
+      }
+      return b;
+    });
+
+    setBidders(final);
   };
 
   const confirmAward = async () => {
@@ -606,14 +816,14 @@ export default function Tender() {
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
-                          onClick={() => { setShowBidderModal(r); loadBidders(r.tender_id); }}
+                          onClick={() => { setShowBidderModal(r); fetchBidders(r.tender_id); }}
                           className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
                           title="Manage Bidders"
                         >
                           <Users size={16} />
                         </button>
                         <button 
-                          onClick={() => setShowEditModal(r)}
+                          onClick={() => openEditModal(r)}
                           className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
                           title="Edit Tender"
                         >
@@ -808,369 +1018,795 @@ export default function Tender() {
           </div>
         )}
 
-      {/* Edit Tender Modal */}
+      {/* Edit Tender Modal - Refactored to 5 Tabs */}
       {showEditModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <h3 className="font-bold text-slate-800">Edit Tender: {showEditModal.tender_no}</h3>
-              <button onClick={() => setShowEditModal(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                <X size={18} className="text-slate-400" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="font-bold text-[var(--navy)] text-base">
+                  {showEditModal.name_of_work?.substring(0, 50)}
+                </h3>
+                <div className="flex items-center gap-4 mt-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tender No: {showEditModal.tender_no}</span>
+                  <div className="h-1 w-1 rounded-full bg-slate-300"></div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stage: {calcTenderStage(editForm as TenderRecord)}</span>
+                </div>
+              </div>
+              <button onClick={() => setShowEditModal(null)} className="p-2 hover:bg-white hover:shadow-sm rounded-full transition-all text-slate-400 hover:text-slate-600">
+                <X size={20} />
               </button>
             </div>
-            
-            <form onSubmit={handleEditTender} className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-10">
-                {/* SECTION 1 — General */}
-                <div className="space-y-4">
-                  <h4 className="text-[12px] font-bold text-[var(--teal)] uppercase tracking-[0.2em] border-b border-teal-100 pb-2">SECTION 1 — General</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="md:col-span-2 space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Name of Work</label>
-                      <textarea 
-                        value={showEditModal.name_of_work || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, name_of_work: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:border-[var(--teal)] outline-none min-h-[100px] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tender No</label>
-                      <div className="flex items-center gap-3 px-4 py-3 bg-teal-50/50 border border-teal-100 rounded-xl text-sm font-bold text-teal-700">
-                        <Lock size={14} className="text-teal-400" />
-                        {showEditModal.tender_no}
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Competent Authority</label>
-                      <div className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-600">
-                        {showEditModal.competent_authority || '—'}
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Division</label>
-                      <div className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-600">
-                        {showEditModal.division}
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Section</label>
-                      <div className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-600">
-                        {showEditModal.section}
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
-                {/* SECTION 2 — Classification */}
-                <div className="space-y-4">
-                  <h4 className="text-[12px] font-bold text-[var(--teal)] uppercase tracking-[0.2em] border-b border-teal-100 pb-2">SECTION 2 — Classification</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tender Type</label>
-                      <select 
-                        value={showEditModal.tender_type || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, tender_type: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      >
-                        <option value="Open Tender">Open Tender</option>
-                        <option value="Limited Tender">Limited Tender</option>
-                        <option value="Single Tender">Single Tender</option>
-                        <option value="GeM Procurement">GeM Procurement</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Procurement Mode</label>
-                      <select 
-                        value={showEditModal.procurement_mode || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, procurement_mode: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      >
-                        <option value="">Select Mode</option>
-                        <option value="e-Tender">e-Tender</option>
-                        <option value="GeM Portal">GeM Portal</option>
-                        <option value="Manual">Manual</option>
-                        <option value="Rate Contract">Rate Contract</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Current Stage</label>
-                      <div className="p-4 bg-teal-50 border border-teal-100 rounded-2xl">
-                        <div className={cn("inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold border uppercase tracking-wider shadow-sm", STAGE_BADGES[calcTenderStage(showEditModal)] || 'bg-slate-100')}>
-                          {calcTenderStage(showEditModal)}
-                        </div>
-                        <p className="text-[10px] text-teal-600 mt-2 font-medium uppercase tracking-widest">Auto-calculated based on data</p>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Award Status</label>
-                      <select 
-                        value={showEditModal.award_status || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, award_status: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      >
-                        <option value="">Pending</option>
-                        <option value="Approved">Approved</option>
-                        <option value="Rejected">Rejected</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </div>
-                    {showEditModal.award_status === 'Cancelled' && (
-                      <div className="md:col-span-2 space-y-1.5 animate-in zoom-in-95 duration-200">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cancellation Reason</label>
-                        <input 
-                          type="text"
-                          value={showEditModal.cancellation_reason || ''}
-                          onChange={(e) => setShowEditModal({...showEditModal, cancellation_reason: e.target.value})}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-rose-500 transition-all"
-                          placeholder="Enter reason for cancellation..."
+            {/* Sub-Header / Status Bar */}
+            <div className="px-6 py-3 bg-white border-b border-slate-50 flex items-center justify-between">
+              <div className="flex gap-6">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase">Division</span>
+                  <span className="text-xs font-semibold text-slate-700">{editForm.division}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase">Authority</span>
+                  <span className="text-xs font-semibold text-slate-700">{editForm.competent_authority}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase">Est. Cost</span>
+                  <span className="text-xs font-bold text-[var(--navy)]">{fmtCurrency(editForm.estimated_cost || 0)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {lastSaved && (
+                  <span className="text-[10px] text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded-md">
+                    Last saved: {lastSaved}
+                  </span>
+                )}
+                <button 
+                  onClick={handleTabSave}
+                  disabled={saving}
+                  className="px-4 py-2 bg-[var(--navy)] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Save Tab
+                </button>
+              </div>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="px-6 bg-slate-50/50 border-b border-slate-100 overflow-x-auto no-scrollbar">
+              <div className="flex gap-4">
+                {TENDER_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                      "flex items-center gap-2 py-4 px-2 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2",
+                      activeTab === tab.id
+                        ? "border-[var(--teal)] text-[var(--teal)]"
+                        : "border-transparent text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    <tab.icon size={14} />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tab Content Area */}
+            <div className="flex-1 overflow-y-auto p-8 bg-white">
+              <div className="max-w-4xl mx-auto">
+                
+                {/* 1. PUBLISHED TAB */}
+                {activeTab === 0 && (
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                          <Layout size={12} className="text-[var(--teal)]" />
+                          Name of Work
+                        </label>
+                        <textarea
+                          value={editForm.name_of_work || ''}
+                          onChange={(e) => setEditForm({ ...editForm, name_of_work: e.target.value })}
+                          className="w-full h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:border-[var(--teal)] outline-none transition-all resize-none font-medium leading-relaxed"
                         />
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* SECTION 3 — Key Dates */}
-                <div className="space-y-4">
-                  <h4 className="text-[12px] font-bold text-[var(--teal)] uppercase tracking-[0.2em] border-b border-teal-100 pb-2">SECTION 3 — Key Dates</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tender Float Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.tender_float_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, tender_float_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bid Submission Deadline</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.bid_submission_deadline?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, bid_submission_deadline: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bid Opening Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.bid_opening_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, bid_opening_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">TC Meeting Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.tc_meeting_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, tc_meeting_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">TC Recommendation Approval Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.tc_recommendation_approval_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, tc_recommendation_approval_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Price Bid Opening Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.price_bid_opening_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, price_bid_opening_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Award Recommendation Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.award_recommendation_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, award_recommendation_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">CA Award Approval Date</label>
-                      <input 
-                        type="date"
-                        value={showEditModal.ca_award_approval_date?.split('T')[0] || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, ca_award_approval_date: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* SECTION 4 — Financials & Bid Info */}
-                <div className="space-y-4">
-                  <h4 className="text-[12px] font-bold text-[var(--teal)] uppercase tracking-[0.2em] border-b border-teal-100 pb-2">SECTION 4 — Financials & Bid Info</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Estimated Cost</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.estimated_cost || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, estimated_cost: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all font-bold text-[#0B1F3A]"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">EMD Amount</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.emd_amount || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, emd_amount: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">No. of Bids Received</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.no_of_bids_received || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, no_of_bids_received: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">No. of Price Bids Opened</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.no_of_price_bids_opened || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, no_of_price_bids_opened: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">TC Qualified Count</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.tc_qualified_count || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, tc_qualified_count: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500 transition-all font-bold text-emerald-600"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">TC Disqualified Count</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.tc_disqualified_count || 0}
-                        onChange={(e) => setShowEditModal({...showEditModal, tc_disqualified_count: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-rose-500 transition-all font-bold text-rose-600"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">L1 Bidder Name</label>
-                      <div className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-[#0B1F3A]">
-                        {showEditModal.l1_bidder_name || '—'}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Tender Type</label>
+                        <select
+                          value={editForm.tender_type || ''}
+                          onChange={(e) => setEditForm({ ...editForm, tender_type: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                        >
+                          <option value="Open Tender">Open Tender</option>
+                          <option value="Limited Tender">Limited Tender</option>
+                          <option value="Single Tender">Single Tender</option>
+                          <option value="GeM Procurement">GeM Procurement</option>
+                        </select>
                       </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">L1 Amount</label>
-                      <div className="px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-[#0B1F3A]">
-                        {showEditModal.l1_amount ? fmtCurrency(showEditModal.l1_amount) : '—'}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Procurement Mode</label>
+                        <select
+                          value={editForm.procurement_mode || ''}
+                          onChange={(e) => setEditForm({ ...editForm, procurement_mode: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                        >
+                          <option value="e-Tender">e-Tender</option>
+                          <option value="GeM Portal">GeM Portal</option>
+                          <option value="Manual">Manual</option>
+                        </select>
                       </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">L1 Percentage</label>
-                      <div className={cn(
-                        "px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold",
-                        (showEditModal.l1_percentage || '').startsWith('-') ? "text-teal-600" : "text-rose-600"
-                      )}>
-                        {showEditModal.l1_percentage || '—'}
+                      <div className="space-y-2 leading-tight">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Float Date</label>
+                        <input
+                          type="date"
+                          value={editForm.tender_float_date?.split('T')[0] || ''}
+                          onChange={(e) => setEditForm({ ...editForm, tender_float_date: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                        />
                       </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Negotiated Amount</label>
-                      <input 
-                        type="number"
-                        value={showEditModal.negotiated_amount || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, negotiated_amount: Number(e.target.value)})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] transition-all font-bold text-[#0B1F3A]"
-                        placeholder="Enter negotiated amount if any..."
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                {/* SECTION 5 — Documents */}
-                <div className="space-y-4">
-                  <h4 className="text-[12px] font-bold text-[var(--teal)] uppercase tracking-[0.2em] border-b border-teal-100 pb-2">SECTION 5 — Documents</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tender Document (NIT)</label>
-                      <div className="flex items-center gap-3">
-                        <label className="flex-1 cursor-pointer group">
-                          <div className="flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-slate-200 rounded-2xl group-hover:border-[var(--teal)] group-hover:bg-teal-50/30 transition-all">
-                            <Upload size={20} className="text-slate-400 group-hover:text-[var(--teal)]" />
-                            <span className="text-xs font-bold text-slate-500 group-hover:text-[var(--teal)]">Click to upload NIT</span>
-                          </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Pre-Bid Date & Time</label>
+                        <div className="flex gap-2">
                           <input 
-                            type="file" 
-                            className="hidden" 
-                            onChange={(e) => e.target.files?.[0] && handleFileUpload(showEditModal.tender_id, e.target.files[0], 'tender_document')} 
+                            type="date" 
+                            value={editForm.pre_bid_date?.split('T')[0] || ''}
+                            onChange={(e) => setEditForm({...editForm, pre_bid_date: e.target.value})}
+                            className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
                           />
-                        </label>
-                        {showEditModal.tender_document && (
-                          <a href={showEditModal.tender_document} target="_blank" rel="noreferrer" className="p-3 bg-teal-50 text-[var(--teal)] rounded-xl hover:bg-teal-100 transition-all">
-                            <FileText size={20} />
-                          </a>
+                          <input 
+                            type="time" 
+                            value={editForm.pre_bid_time || ''}
+                            onChange={(e) => setEditForm({...editForm, pre_bid_time: e.target.value})}
+                            className="w-32 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Bid End Date & Time</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="date" 
+                            value={editForm.bid_submission_deadline?.split('T')[0] || ''}
+                            onChange={(e) => setEditForm({...editForm, bid_submission_deadline: e.target.value})}
+                            className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
+                          />
+                          <input 
+                            type="time" 
+                            value={editForm.bid_end_time || ''}
+                            onChange={(e) => setEditForm({...editForm, bid_end_time: e.target.value})}
+                            className="w-32 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Bid Opening Date & Time</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="date" 
+                            value={editForm.bid_opening_date?.split('T')[0] || ''}
+                            onChange={(e) => setEditForm({...editForm, bid_opening_date: e.target.value})}
+                            className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
+                          />
+                          <input 
+                            type="time" 
+                            value={editForm.bid_opening_time || ''}
+                            onChange={(e) => setEditForm({...editForm, bid_opening_time: e.target.value})}
+                            className="w-32 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]" 
+                          />
+                        </div>
+                      </div>
+                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div className="space-y-4">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">1. Official Tender Document (NIT)</h4>
+                            <div className="flex items-center gap-4">
+                               <label className="flex-1 cursor-pointer group">
+                                 <div className="flex items-center justify-center gap-3 px-4 py-6 border-2 border-dashed border-slate-200 rounded-xl group-hover:border-[var(--teal)] group-hover:bg-white transition-all">
+                                   <Upload size={16} className="text-slate-400 group-hover:text-[var(--teal)]" />
+                                   <span className="text-[10px] font-bold text-slate-500 group-hover:text-[var(--teal)]">
+                                     {editForm.tender_document ? 'Change NIT' : 'Upload NIT'}
+                                   </span>
+                                 </div>
+                                 <input 
+                                   type="file" 
+                                   className="hidden" 
+                                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'tender_document', 'nit')} 
+                                 />
+                               </label>
+                               {editForm.tender_document && (
+                                 <a href={editForm.tender_document} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-white shadow-sm border border-slate-100 rounded-xl hover:text-[var(--teal)] transition-all">
+                                   <FileText size={18} className="text-teal-600" />
+                                 </a>
+                               )}
+                            </div>
+                         </div>
+
+                         <div className="space-y-4">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">2. GeM Bid Document</h4>
+                            <div className="flex items-center gap-4">
+                               <label className="flex-1 cursor-pointer group">
+                                 <div className="flex items-center justify-center gap-3 px-4 py-6 border-2 border-dashed border-slate-200 rounded-xl group-hover:border-[var(--teal)] group-hover:bg-white transition-all">
+                                   <Upload size={16} className="text-slate-400 group-hover:text-[var(--teal)]" />
+                                   <span className="text-[10px] font-bold text-slate-500 group-hover:text-[var(--teal)]">
+                                     {editForm.gem_bid_document ? 'Change GeM Bid' : 'Upload GeM Bid'}
+                                   </span>
+                                 </div>
+                                 <input 
+                                   type="file" 
+                                   className="hidden" 
+                                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_bid_document', 'gem_bid')} 
+                                 />
+                               </label>
+                               {editForm.gem_bid_document && (
+                                 <a href={editForm.gem_bid_document} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-white shadow-sm border border-slate-100 rounded-xl hover:text-[var(--teal)] transition-all">
+                                   <FileText size={18} className="text-teal-600" />
+                                 </a>
+                               )}
+                            </div>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. BIDS RECEIVED TAB */}
+                {activeTab === 1 && (
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-8 border-b border-slate-100">
+                       <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Opening Date</label>
+                        <input
+                          type="date"
+                          value={editForm.bid_opening_date?.split('T')[0] || ''}
+                          onChange={(e) => setEditForm({ ...editForm, bid_opening_date: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">No. of Bids Received</label>
+                        <input
+                          type="number"
+                          value={editForm.no_of_bids_received || 0}
+                          onChange={(e) => setEditForm({ ...editForm, no_of_bids_received: Number(e.target.value) })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50/50 rounded-2xl p-6 border border-slate-100">
+                      <h4 className="flex items-center gap-3 text-sm font-bold text-[var(--navy)] mb-6 border-b border-slate-200 pb-3">
+                        <Users size={18} className="text-[var(--teal)]" />
+                        Participating Bidders
+                      </h4>
+                      
+                      {/* Bidder Addition Form */}
+                      <form onSubmit={handleAddBidder} className="flex gap-4 mb-6">
+                        <input
+                          type="text"
+                          placeholder="Bidder Agency Name..."
+                          value={newBidder.bidder_name}
+                          onChange={(e) => setNewBidder({ ...newBidder, bidder_name: e.target.value })}
+                          className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                        />
+                        <select
+                          value={newBidder.emd_status}
+                          onChange={(e) => setNewBidder({ ...newBidder, emd_status: e.target.value })}
+                          className="w-40 px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none"
+                        >
+                          <option value="Submitted">EMD Submitted</option>
+                          <option value="Exempted">Exempted</option>
+                          <option value="Pending">Pending</option>
+                        </select>
+                        <button type="submit" className="p-3 bg-[var(--teal)] text-white rounded-xl hover:bg-teal-700 transition-all font-bold">
+                          <Plus size={20} />
+                        </button>
+                      </form>
+
+                      {/* Bidders Table */}
+                      <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-[0.1em] border-b border-slate-100">
+                              <th className="px-5 py-4 w-16">Sr</th>
+                              <th className="px-5 py-4">Bidder Name</th>
+                              <th className="px-5 py-4">EMD Status</th>
+                              <th className="px-5 py-4 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {bidders.map((bidder, idx) => (
+                              <tr key={bidder.bidder_id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-5 py-4 font-bold text-slate-400">{idx + 1}</td>
+                                <td className="px-5 py-4 font-bold text-slate-700">{bidder.bidder_name}</td>
+                                <td className="px-5 py-4">
+                                  <span className={cn(
+                                    "px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest",
+                                    bidder.emd_status === 'Submitted' ? "bg-emerald-50 text-emerald-600" :
+                                    bidder.emd_status === 'Exempted' ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
+                                  )}>
+                                    {bidder.emd_status}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-4 text-center">
+                                  <button
+                                    onClick={() => deleteBidder(bidder.bidder_id)}
+                                    className="p-2 lg:opacity-0 group-hover:opacity-100 transition-all text-slate-300 hover:text-rose-600"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                            {bidders.length === 0 && (
+                              <tr>
+                                <td colSpan={4} className="px-5 py-12 text-center">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Users size={32} className="text-slate-200" />
+                                    <p className="text-slate-400 font-medium italic">No bidders added yet</p>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. TECHNICAL EVALUATION TAB */}
+                {activeTab === 2 && (
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-8 border-b border-slate-100">
+                      <div className="md:col-span-2">
+                        <h4 className="flex items-center gap-2 text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-4">
+                          3A — TC for Shortfall Documents
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Shortfall TC Applicable</label>
+                            <select
+                              value={editForm.shortfall_tc_applicable || 'No'}
+                              onChange={(e) => setEditForm({ ...editForm, shortfall_tc_applicable: e.target.value })}
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            >
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          </div>
+                          {editForm.shortfall_tc_applicable === 'Yes' ? (
+                            <>
+                              <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Held Date</label>
+                                <input
+                                  type="date"
+                                  value={editForm.shortfall_tc_date?.split('T')[0] || ''}
+                                  onChange={(e) => setEditForm({ ...editForm, shortfall_tc_date: e.target.value })}
+                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Approval Date</label>
+                                <input
+                                  type="date"
+                                  value={editForm.shortfall_tc_approval_date?.split('T')[0] || ''}
+                                  onChange={(e) => setEditForm({ ...editForm, shortfall_tc_approval_date: e.target.value })}
+                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <div className="md:col-span-2 flex items-center px-6 bg-slate-100 rounded-xl border border-slate-200 text-slate-400 italic text-[11px]">
+                              No shortfall TC applicable for this tender
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-2 pt-4">
+                        <h4 className="flex items-center gap-2 text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-4">
+                          3B — TC for Price Bid Opening
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Held Date</label>
+                            <input
+                              type="date"
+                              value={editForm.price_bid_tc_date?.split('T')[0] || ''}
+                              onChange={(e) => setEditForm({ ...editForm, price_bid_tc_date: e.target.value })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Approval Date</label>
+                            <input
+                              type="date"
+                              value={editForm.price_bid_tc_approval_date?.split('T')[0] || ''}
+                              onChange={(e) => setEditForm({ ...editForm, price_bid_tc_approval_date: e.target.value })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50/50 rounded-2xl p-6 border border-slate-100">
+                      <div className="flex items-center justify-between mb-6">
+                        <h4 className="flex items-center gap-3 text-sm font-bold text-[var(--navy)]">
+                          <CircleDashed size={18} className="text-[var(--teal)]" />
+                          3C — Technical Qualification of Bidders
+                        </h4>
+                        <div className="flex gap-4">
+                          <div className="flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
+                            <span className="text-[10px] font-bold text-emerald-600 uppercase">Qualified</span>
+                            <span className="text-sm font-black text-emerald-700">{bidders.filter(b => b.technical_status === 'Qualified').length}</span>
+                          </div>
+                          <div className="flex items-center gap-2 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
+                            <span className="text-[10px] font-bold text-rose-600 uppercase">Disqualified</span>
+                            <span className="text-sm font-black text-rose-700">{bidders.filter(b => b.technical_status === 'Disqualified').length}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                        {bidders.map((bidder) => (
+                          <div key={bidder.bidder_id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-[var(--teal)] transition-all">
+                            <div className="flex-1">
+                              <p className="text-sm font-bold text-slate-700">{bidder.bidder_name}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className={cn(
+                                  "text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded",
+                                  bidder.technical_status === 'Qualified' ? "bg-emerald-50 text-emerald-600" :
+                                  bidder.technical_status === 'Disqualified' ? "bg-rose-50 text-rose-600" : "bg-slate-50 text-slate-400"
+                                )}>
+                                  {bidder.technical_status || 'NOT EVALUATED'}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-3">
+                              <div className="flex bg-slate-100 p-1 rounded-lg">
+                                <button
+                                  onClick={() => updateBidderStatus(bidder.bidder_id, 'Qualified', '')}
+                                  className={cn(
+                                    "px-4 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all",
+                                    bidder.technical_status === 'Qualified' ? "bg-white text-emerald-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                                  )}
+                                >
+                                  Qualified
+                                </button>
+                                <button
+                                  onClick={() => updateBidderStatus(bidder.bidder_id, 'Disqualified', bidder.disqualification_reason || '')}
+                                  className={cn(
+                                    "px-4 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all",
+                                    bidder.technical_status === 'Disqualified' ? "bg-white text-rose-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                                  )}
+                                >
+                                  Disqualified
+                                </button>
+                              </div>
+                              
+                              {bidder.technical_status === 'Disqualified' && (
+                                <input
+                                  type="text"
+                                  placeholder="Reason..."
+                                  value={bidder.disqualification_reason || ''}
+                                  onChange={(e) => updateBidderStatus(bidder.bidder_id, 'Disqualified', e.target.value)}
+                                  className="w-40 px-3 py-1.5 border border-rose-100 rounded-lg text-[11px] outline-none focus:border-rose-400"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. PRICE BIDS TAB */}
+                {activeTab === 3 && (
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-8 border-b border-slate-100">
+                       <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Opening Date</label>
+                        <input
+                          type="date"
+                          value={editForm.price_bid_opening_date?.split('T')[0] || ''}
+                          onChange={(e) => setEditForm({ ...editForm, price_bid_opening_date: e.target.value })}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Estimated Cost</label>
+                        <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-600">
+                          {fmtCurrency(editForm.estimated_cost || 0)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                       <div className="bg-slate-50 py-4 px-6 border-b border-slate-100">
+                          <h4 className="flex items-center gap-3 text-sm font-bold text-[var(--navy)]">
+                            <Hash size={18} className="text-[var(--teal)]" />
+                            Financial Ranking
+                          </h4>
+                       </div>
+                       <div className="p-1">
+                          <table className="w-full text-left text-xs">
+                             <thead>
+                                <tr className="text-slate-400 font-bold uppercase tracking-[0.1em] border-b border-slate-50">
+                                   <th className="px-5 py-4">Bidder Name</th>
+                                   <th className="px-5 py-4">Status</th>
+                                   <th className="px-5 py-4">Bid Amount (Rs)</th>
+                                   <th className="px-5 py-4 text-center">Estimate %</th>
+                                   <th className="px-5 py-4 text-center">Rank</th>
+                                </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-50">
+                                {bidders.map((bidder) => {
+                                  const isQualified = bidder.technical_status === 'Qualified';
+                                  return (
+                                    <tr key={bidder.bidder_id} className={cn(!isQualified && "opacity-60 bg-slate-50/50")}>
+                                      <td className="px-5 py-4 font-bold text-slate-700">{bidder.bidder_name}</td>
+                                      <td className="px-5 py-4">
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded text-[9px] font-black uppercase",
+                                          isQualified ? "text-emerald-500" : "text-rose-400"
+                                        )}>
+                                          {isQualified ? 'QUALIFIED' : 'REJECTED'}
+                                        </span>
+                                      </td>
+                                      <td className="px-5 py-4">
+                                        {isQualified ? (
+                                          <input
+                                            type="number"
+                                            value={bidder.bid_amount || ''}
+                                            placeholder="0.00"
+                                            onChange={(e) => {
+                                              const amt = Number(e.target.value);
+                                              const est = editForm.estimated_cost || 0;
+                                              const diff = est > 0 ? ((amt - est) / est) * 100 : 0;
+                                              const pct = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`;
+                                              
+                                              setBidders(bidders.map(b => 
+                                                b.bidder_id === bidder.bidder_id ? { ...b, bid_amount: amt, percentage_vs_estimate: pct } : b
+                                              ));
+                                            }}
+                                            className="w-32 px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold bg-white focus:border-[var(--teal)] outline-none"
+                                          />
+                                        ) : (
+                                          <span className="text-slate-400 font-medium italic">N/A</span>
+                                        )}
+                                      </td>
+                                      <td className="px-5 py-4 text-center">
+                                        {isQualified && bidder.bid_amount ? (
+                                          <span className={cn(
+                                            "font-bold",
+                                            (bidder.percentage_vs_estimate || '').startsWith('-') ? "text-teal-600" : "text-rose-600"
+                                          )}>
+                                            {bidder.percentage_vs_estimate}
+                                          </span>
+                                        ) : '—'}
+                                      </td>
+                                      <td className="px-5 py-4 text-center">
+                                         {isQualified && bidder.financial_rank ? (
+                                           <span className="inline-block w-8 h-8 flex items-center justify-center bg-[var(--teal)] text-white rounded-full font-black text-[10px]">
+                                             {bidder.financial_rank}
+                                           </span>
+                                         ) : '—'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                             </tbody>
+                          </table>
+                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. AWARD TAB */}
+                {activeTab === 4 && (
+                  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="space-y-8">
+                      <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-200">
+                        <h4 className="flex items-center gap-2 text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-6">
+                          5A — TC for Award Recommendation
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                           <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Held Date</label>
+                            <input
+                              type="date"
+                              value={editForm.award_tc_date?.split('T')[0] || ''}
+                              onChange={(e) => setEditForm({ ...editForm, award_tc_date: e.target.value })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                          </div>
+                           <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">TC Approval by CA Date</label>
+                            <input
+                              type="date"
+                              value={editForm.award_tc_approval_date?.split('T')[0] || ''}
+                              onChange={(e) => setEditForm({ ...editForm, award_tc_approval_date: e.target.value })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Negotiated Amount</label>
+                            <input
+                              type="number"
+                              value={editForm.negotiated_amount || ''}
+                              onChange={(e) => setEditForm({ ...editForm, negotiated_amount: Number(e.target.value) })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                            <p className="text-[9px] text-slate-400 italic">Leave blank if L1 rate accepted as is</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="md:col-span-2">
+                          <h4 className="flex items-center gap-2 text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-2">
+                            5B — Award Decision
+                          </h4>
+                        </div>
+                         <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Award Recommendation Date</label>
+                          <input
+                            type="date"
+                            value={editForm.award_recommendation_date?.split('T')[0] || ''}
+                            onChange={(e) => setEditForm({ ...editForm, award_recommendation_date: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">CA Approval Date</label>
+                          <input
+                            type="date"
+                            value={editForm.ca_award_approval_date?.split('T')[0] || ''}
+                            onChange={(e) => setEditForm({ ...editForm, ca_award_approval_date: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Award Status</label>
+                          <select
+                            value={editForm.award_status || ''}
+                            onChange={(e) => setEditForm({ ...editForm, award_status: e.target.value })}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-[var(--teal)]"
+                          >
+                            <option value="">Select Status</option>
+                            <option value="Approved">Approved / Awarded</option>
+                            <option value="Cancelled">Tender Cancelled</option>
+                            <option value="Rejected">Rejected</option>
+                          </select>
+                        </div>
+
+                        <div className="p-8 bg-teal-50 border border-teal-100 rounded-2xl md:col-span-2 flex items-center justify-between">
+                          <div className="flex-1">
+                            <h4 className="flex items-center gap-3 text-sm font-bold text-teal-800 mb-2">
+                              <Award size={20} className="text-teal-600" />
+                              Award Information Summary
+                            </h4>
+                            {editForm.l1_bidder_name ? (
+                              <div className="space-y-1">
+                                <p className="text-xs text-teal-600 font-medium tracking-tight">System determined L1 bidder based on Price Bids Tab.</p>
+                                <div className="flex items-baseline gap-2 mt-4">
+                                  <span className="text-sm font-black text-teal-700">{editForm.l1_bidder_name}</span>
+                                  <span className="text-xs font-bold text-teal-500">at {fmtCurrency(editForm.l1_amount || 0)}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400 italic">No price bids entered yet. System cannot determine L1.</p>
+                            )}
+                          </div>
+                          {editForm.award_status === 'Approved' && editForm.l1_bidder_name && (
+                            <div className="flex flex-col gap-2">
+                              <button 
+                                onClick={() => setShowAwardConfirm(editForm as TenderRecord)}
+                                className="px-6 py-3 bg-[var(--teal)] text-white text-[11px] font-bold uppercase tracking-widest rounded-xl hover:bg-teal-700 shadow-lg shadow-teal-200 transition-all flex items-center gap-2"
+                              >
+                                Confirm Award Move
+                                <ArrowRightCircle size={14} />
+                              </button>
+                              <p className="text-[9px] text-teal-500 font-bold uppercase text-center">Moves to Awarded Module</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="p-8 bg-slate-50 border border-slate-200 rounded-2xl md:col-span-2">
+                          <h4 className="text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-6">5C — GeM Contract Order</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                             <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">GeM Contract No</label>
+                                <input 
+                                  type="text"
+                                  value={editForm.gem_contract_no || ''}
+                                  onChange={(e) => setEditForm({...editForm, gem_contract_no: e.target.value})}
+                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                                  placeholder="Order No / GEMC-..."
+                                />
+                             </div>
+                             <div className="space-y-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Contract Date</label>
+                                <input 
+                                  type="date"
+                                  value={editForm.gem_contract_date?.split('T')[0] || ''}
+                                  onChange={(e) => setEditForm({...editForm, gem_contract_date: e.target.value})}
+                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                                />
+                             </div>
+                          </div>
+                        </div>
+
+                        {editForm.award_status === 'Cancelled' && (
+                          <div className="md:col-span-2 space-y-3 animate-in fade-in zoom-in-95 duration-200">
+                             <label className="text-[11px] font-bold text-rose-600 uppercase tracking-widest">Reason for Cancellation</label>
+                             <textarea
+                               value={editForm.cancellation_reason || ''}
+                               onChange={(e) => setEditForm({ ...editForm, cancellation_reason: e.target.value })}
+                               className="w-full h-20 px-4 py-3 bg-rose-50 border border-rose-100 rounded-xl text-sm focus:border-rose-300 outline-none"
+                               placeholder="Provide reason for cancellation..."
+                             />
+                          </div>
                         )}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">GeM Contract Order</label>
-                      <div className="flex items-center gap-3">
-                        <label className="flex-1 cursor-pointer group">
-                          <div className="flex items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-slate-200 rounded-2xl group-hover:border-[var(--teal)] group-hover:bg-teal-50/30 transition-all">
-                            <Upload size={20} className="text-slate-400 group-hover:text-[var(--teal)]" />
-                            <span className="text-xs font-bold text-slate-500 group-hover:text-[var(--teal)]">Click to upload Order</span>
-                          </div>
-                          <input 
-                            type="file" 
-                            className="hidden" 
-                            onChange={(e) => e.target.files?.[0] && handleFileUpload(showEditModal.tender_id, e.target.files[0], 'gem_contract_order')} 
-                          />
-                        </label>
-                        {showEditModal.gem_contract_order && (
-                          <a href={showEditModal.gem_contract_order} target="_blank" rel="noreferrer" className="p-3 bg-sky-50 text-sky-600 rounded-xl hover:bg-sky-100 transition-all">
-                            <FileText size={20} />
-                          </a>
-                        )}
-                      </div>
-                    </div>
                   </div>
-                </div>
-              </div>
+                )}
 
-              <div className="mt-8 flex gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setShowEditModal(null)}
-                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-[var(--teal)] text-white rounded-xl font-bold text-sm hover:bg-[var(--teal2)] transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-                  Save Changes
-                </button>
               </div>
-            </form>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-8 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="flex -space-x-2">
+                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 0 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
+                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 1 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
+                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 2 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
+                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 3 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
+                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 4 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
+                </div>
+                <span className="text-[10px] font-bold text-slate-400">TAB {activeTab + 1} OF 5</span>
+              </div>
+              <div className="flex gap-4">
+                {activeTab > 0 && (
+                  <button onClick={() => setActiveTab(activeTab - 1)} className="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all uppercase tracking-widest">
+                    Previous
+                  </button>
+                )}
+                {activeTab < 4 ? (
+                  <button 
+                    onClick={() => {
+                       handleTabSave();
+                       setActiveTab(activeTab + 1);
+                    }}
+                    disabled={saving}
+                    className="px-6 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-black transition-all uppercase tracking-widest"
+                  >
+                    Save & Next
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => setShowEditModal(null)}
+                    className="px-6 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all uppercase tracking-widest shadow-lg shadow-emerald-100"
+                  >
+                    Finish
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
+
 
       {/* Bidder Management Modal */}
       {showBidderModal && (

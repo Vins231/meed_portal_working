@@ -392,97 +392,101 @@ export const api = {
   },
 
   async getDashboardData() {
-    const { data: awarded } = await supabase.from('awarded_works').select('*');
-    const { data: planning } = await supabase.from('planning').select('*');
-    const { data: approval } = await supabase.from('under_approval').select('*');
-    const { data: tender } = await supabase.from('tender').select('*');
-    const { data: bg } = await supabase.from('bg_tracker').select('*');
-    const { data: logs } = await supabase.from('activity_log').select('*').order('timestamp', { ascending: false }).limit(6);
+    try {
+      const [
+        { data: awarded, error: awardedErr },
+        { data: planning, error: planningErr },
+        { data: approval, error: approvalErr },
+        { data: tender, error: tenderErr },
+        { data: bg, error: bgErr },
+        { data: logs, error: logsErr }
+      ] = await Promise.all([
+        supabase.from('awarded_works').select('*'),
+        supabase.from('planning').select('*'),
+        supabase.from('under_approval').select('*'),
+        supabase.from('tender').select('*'),
+        supabase.from('bg_tracker').select('*'),
+        supabase.from('activity_log').select('*').order('timestamp', { ascending: false }).limit(6)
+      ]);
 
-    const awardedActive = (awarded || []).filter((r: any) => r.overall_status !== 'Completed');
-    const delayed = awardedActive.filter((r: any) => (Number(r.delay_days) || 0) > 0);
-    
-    const totalAwarded = awardedActive.reduce((sum: number, r: any) => sum + (Number(r.awarded_cost) || 0), 0);
-    const totalReleased = (awarded || []).reduce((sum: number, r: any) => sum + (Number(r.payment_released) || 0), 0);
-    const totalPending = awardedActive.reduce((sum: number, r: any) => sum + (Number(r.payment_pending) || 0), 0);
+      if (awardedErr) console.error('Awarded fetch error:', awardedErr);
+      if (planningErr) console.error('Planning fetch error:', planningErr);
+      if (approvalErr) console.error('Approval fetch error:', approvalErr);
+      if (tenderErr) console.error('Tender fetch error:', tenderErr);
+      if (bgErr) console.error('BG fetch error:', bgErr);
+      if (logsErr) console.error('Logs fetch error:', logsErr);
 
-    // 1. BG expiring within 30 days
-    const { data: bgExpiring } = await supabase
-      .from('bg_tracker')
-      .select('bg_id, bg_number, agency_name, days_remaining')
-      .neq('bg_status', 'Released')
-      .lte('days_remaining', 30)
-      .order('days_remaining', { ascending: true });
+      const awardedActive = (awarded || []).filter((r: any) => r.overall_status !== 'Completed');
+      const delayed = awardedActive.filter((r: any) => (Number(r.delay_days) || 0) > 0);
+      
+      const totalAwarded = awardedActive.reduce((sum: number, r: any) => sum + (Number(r.awarded_cost) || 0), 0);
+      const totalReleased = (awarded || []).reduce((sum: number, r: any) => sum + (Number(r.payment_released) || 0), 0);
+      const totalPending = awardedActive.reduce((sum: number, r: any) => sum + (Number(r.payment_pending) || 0), 0);
 
-    const bgActions = (bgExpiring || []).map(b => ({
-      id: b.bg_id,
-      type: 'bg',
-      priority: b.days_remaining <= 7 ? 'critical' : 'warning',
-      label: 'BG Expiring: ' + b.bg_number,
-      sublabel: b.days_remaining + ' days remaining'
-    }));
+      // 1. BG Alerts
+      const bgAlertsCount = (bg || []).filter((b: any) => b.bg_status !== 'Released' && Number(b.days_remaining) <= 30).length;
+      const bgAlertsList = (bg || [])
+        .filter((b: any) => b.bg_status !== 'Released' && Number(b.days_remaining) <= 30)
+        .sort((a, b) => (Number(a.days_remaining) || 0) - (Number(b.days_remaining) || 0))
+        .slice(0, 5);
 
-    // 2. Delayed works
-    const { data: delayedWorks } = await supabase
-      .from('awarded_works')
-      .select('awarded_id, name_of_work, delay_days')
-      .gt('delay_days', 0)
-      .neq('overall_status', 'Completed')
-      .order('delay_days', { ascending: false })
-      .limit(3);
+      const bgActions = bgAlertsList.map(b => ({
+        id: b.bg_id,
+        type: 'bg',
+        priority: Number(b.days_remaining) <= 7 ? 'critical' : 'warning',
+        label: 'BG Expiring: ' + b.bg_number,
+        sublabel: (b.days_remaining || 0) + ' days remaining'
+      }));
 
-    const delayActions = (delayedWorks || []).map(w => ({
-      id: w.awarded_id,
-      type: 'delay',
-      priority: w.delay_days > 30 ? 'critical' : 'warning',
-      label: 'Delayed: ' + (w.name_of_work?.substring(0, 35) || 'Unnamed Work'),
-      sublabel: w.delay_days + ' days behind'
-    }));
+      // 2. Delayed works
+      const delayActions = awardedActive
+        .filter((w: any) => (Number(w.delay_days) || 0) > 0)
+        .sort((a, b) => (Number(b.delay_days) || 0) - (Number(a.delay_days) || 0))
+        .slice(0, 5)
+        .map(w => ({
+          id: w.awarded_id,
+          type: 'delay',
+          priority: Number(w.delay_days) > 30 ? 'critical' : 'warning',
+          label: 'Delayed: ' + (w.name_of_work?.substring(0, 35) || 'Unnamed Work'),
+          sublabel: (w.delay_days || 0) + ' days behind'
+        }));
 
-    // 3. Approvals pending > 30 days
-    const { data: pendingApprovals } = await supabase
-      .from('under_approval')
-      .select('approval_id, name_of_work, days_in_pipeline')
-      .gt('days_in_pipeline', 30)
-      .not('current_stage', 'in', '(Dropped,Tendered)')
-      .order('days_in_pipeline', { ascending: false })
-      .limit(2);
+      // 3. Approval items
+      const approvalActions = (approval || [])
+        .filter((a: any) => Number(a.days_in_pipeline) > 30 && !['Dropped', 'Tendered'].includes(a.current_stage))
+        .sort((a, b) => (Number(b.days_in_pipeline) || 0) - (Number(a.days_in_pipeline) || 0))
+        .slice(0, 5)
+        .map(a => ({
+          id: a.approval_id,
+          type: 'approval',
+          priority: 'warning',
+          label: 'Approval Pending: ' + (a.name_of_work?.substring(0, 35) || 'Unnamed Work'),
+          sublabel: (a.days_in_pipeline || 0) + ' days in pipeline'
+        }));
 
-    const approvalActions = (pendingApprovals || []).map(a => ({
-      id: a.approval_id,
-      type: 'approval',
-      priority: 'warning',
-      label: 'Approval Pending: ' + (a.name_of_work?.substring(0, 35) || 'Unnamed Work'),
-      sublabel: a.days_in_pipeline + ' days in pipeline'
-    }));
+      const allActions = [...bgActions, ...delayActions, ...approvalActions]
+        .sort((a, b) => (a.priority === 'critical' ? -1 : 1))
+        .slice(0, 5);
 
-    // Combine and sort by priority (critical first)
-    const allActions = [...bgActions, ...delayActions, ...approvalActions]
-      .sort((a, b) => (a.priority === 'critical' ? -1 : 1))
-      .slice(0, 5);
-
-    // Fix bgAlerts count and bgAlertsList
-    const bgAlertsCount = (bg || []).filter((b: any) => b.bg_status !== 'Released' && b.days_remaining <= 30).length;
-    const bgAlertsList = (bg || [])
-      .filter((b: any) => b.bg_status !== 'Released' && b.days_remaining <= 30)
-      .sort((a, b) => (a.days_remaining || 0) - (b.days_remaining || 0))
-      .slice(0, 5);
-
-    return {
-      planningCount: (planning || []).filter((p: any) => p.status !== 'Submitted').length,
-      approvalCount: (approval || []).filter((a: any) => !['Dropped', 'Tendered'].includes(a.current_stage)).length,
-      tenderCount: (tender || []).filter((t: any) => !['Awarded', 'Cancelled'].includes(t.current_stage)).length,
-      awardedActive: awardedActive.length,
-      delayed: delayed.length,
-      completed: (awarded || []).filter((r: any) => r.overall_status === 'Completed').length,
-      totalAwarded,
-      totalReleased,
-      totalPending,
-      bgAlerts: bgAlertsCount,
-      bgAlertsList: bgAlertsList,
-      recentActivity: logs || [],
-      pendingActions: allActions
-    };
+      return {
+        planningCount: (planning || []).filter((p: any) => p.status !== 'Submitted').length,
+        approvalCount: (approval || []).filter((a: any) => !['Dropped', 'Tendered'].includes(a.current_stage)).length,
+        tenderCount: (tender || []).filter((t: any) => !['Awarded', 'Cancelled'].includes(t.current_stage)).length,
+        awardedActive: awardedActive.length,
+        delayed: delayed.length,
+        completed: (awarded || []).filter((r: any) => r.overall_status === 'Completed').length,
+        totalAwarded,
+        totalReleased,
+        totalPending,
+        bgAlerts: bgAlertsCount,
+        bgAlertsList: bgAlertsList,
+        recentActivity: logs || [],
+        pendingActions: allActions
+      };
+    } catch (error) {
+      console.error('getDashboardData unexpected error:', error);
+      throw error;
+    }
   },
 
   async login(email: string, password?: string): Promise<User> {
