@@ -151,7 +151,10 @@ export const api = {
       .eq('approval_id', approval.approval_id);
     if (updateError) throw updateError;
 
-    // 2. Add to tender
+    // 2. Generate Tender No
+    const tenderNo = await this.generateTenderNo();
+
+    // 3. Add to tender
     const { error: insertError } = await supabase
       .from('tender')
       .insert([{
@@ -163,7 +166,7 @@ export const api = {
         section: approval.section,
         estimated_cost: Number(approval.estimated_cost) || 0,
         competent_authority: approval.competent_authority || 'Chairman',
-        tender_no: `TND/2024/${Math.floor(Math.random() * 1000) + 100}`,
+        tender_no: tenderNo,
         tender_type: 'Open Tender',
         current_stage: 'Floating',
         added_by: user.name,
@@ -173,6 +176,53 @@ export const api = {
     if (insertError) throw insertError;
 
     await this.logActivity('TENDER_MOVE', 'APPROVAL', approval.approval_id, `Work moved to Tendering by ${user.name}`, user);
+  },
+
+  async generateTenderNo(): Promise<string> {
+    const year = new Date().getFullYear();
+    const pattern = `MEED-%/${year}`;
+    
+    const { data, error } = await supabase
+      .from('tender')
+      .select('tender_no')
+      .like('tender_no', pattern);
+    
+    if (error) throw error;
+
+    let maxSeq = 0;
+    const regex = /MEED-(\d+)\//;
+    
+    if (data && data.length > 0) {
+      data.forEach(item => {
+        const match = item.tender_no?.match(regex);
+        if (match) {
+          const seq = parseInt(match[1]);
+          if (seq > maxSeq) maxSeq = seq;
+        }
+      });
+    }
+
+    let nextSeq = maxSeq + 1;
+    let candidate = `MEED-${String(nextSeq).padStart(3, '0')}/${year}`;
+
+    // Verify uniqueness (extra safety)
+    let exists = true;
+    while(exists) {
+      const { data: existingData } = await supabase
+        .from('tender')
+        .select('tender_no')
+        .eq('tender_no', candidate)
+        .maybeSingle();
+      
+      if (!existingData) {
+        exists = false;
+      } else {
+        nextSeq++;
+        candidate = `MEED-${String(nextSeq).padStart(3, '0')}/${year}`;
+      }
+    }
+
+    return candidate;
   },
 
   // --- TENDER ---

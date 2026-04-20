@@ -6,7 +6,8 @@ import {
   TrendingDown, TrendingUp, AlertCircle,
   FileDown, Printer, Download, Save, Lock,
   Trash2, Calendar, Clock, CloudUpload,
-  Hash, Layout, Award, ArrowRightCircle, CircleDashed
+  Hash, Layout, Award, ArrowRightCircle, CircleDashed,
+  Info, Check, Trophy
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { TenderRecord, BidderRecord, User, MasterData } from '../types';
@@ -57,11 +58,11 @@ const STAGE_BADGES: Record<string, string> = {
 };
 
 const TENDER_TABS = [
-  { id: 0, label: '1. Published', icon: Layout },
-  { id: 1, label: '2. Bids Received', icon: Users },
-  { id: 2, label: '3. Technical', icon: CircleDashed },
-  { id: 3, label: '4. Price Bids', icon: Hash },
-  { id: 4, label: '5. Award', icon: Award },
+  { id: 0, label: 'Published', icon: Layout },
+  { id: 1, label: 'Bids', icon: Users },
+  { id: 2, label: 'Technical', icon: CircleDashed },
+  { id: 3, label: 'Price Bids', icon: Hash },
+  { id: 4, label: 'Award', icon: Award },
 ];
 
 const fmtCurrency = (n: number) => {
@@ -122,6 +123,9 @@ export default function Tender() {
     bidder_name: '',
     emd_status: 'Submitted'
   });
+
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [editingReason, setEditingReason] = useState<{id: string, value: string} | null>(null);
 
   const [showAwardConfirm, setShowAwardConfirm] = useState<TenderRecord | null>(null);
 
@@ -435,39 +439,48 @@ export default function Tender() {
   };
 
   const handleFileUpload = async (
-    file: File, 
-    field: string,
+    file: File,
+    field: string, 
     pathSuffix: string
   ) => {
-    if (!showEditModal) return;
-    setSaving(true);
+    if (!showEditModal?.tender_id) return;
     try {
+      setUploading(field);
       const fileExt = file.name.split('.').pop();
-      const fileName = `${pathSuffix}_${Date.now()}.${fileExt}`;
-      const filePath = `tender/${showEditModal.tender_id}/${fileName}`;
+      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filePath = `tender/${showEditModal.tender_id}/${pathSuffix}_${Date.now()}.${fileExt}`;
       
-      const { error } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('meed-documents')
-        .upload(filePath, file);
-      if (error) throw error;
+        .upload(filePath, file, { upsert: true });
+      
+      if (uploadError) throw uploadError;
       
       const { data: { publicUrl } } = supabase.storage
         .from('meed-documents')
         .getPublicUrl(filePath);
       
       setEditForm(prev => ({ ...prev, [field]: publicUrl }));
-      setSuccessMessage(`${field.replace(/_/g, ' ')} uploaded successfully`);
+      setSuccessMessage(`${field.replace(/_/g,' ')} uploaded successfully`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError(err.message);
+      setError(`Upload failed: ${err.message}`);
     } finally {
-      setSaving(false);
+      setUploading(null);
     }
   };
 
   const handleAddBidder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!showEditModal || !currentUser || !newBidder.bidder_name) return;
+    
+    // Count limit check
+    const maxBidders = editForm.no_of_bids_received || 0;
+    if (maxBidders > 0 && bidders.length >= maxBidders) {
+      setError(`Maximum ${maxBidders} bidders allowed as per bids received count`);
+      return;
+    }
+
     setSaving(true);
     try {
       const bidderId = `BID-${Date.now()}`;
@@ -739,7 +752,15 @@ export default function Tender() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-[13px] font-semibold text-[var(--ink)]">
-                      {fmtCurrency(r.estimated_cost)}
+                      <div className="flex flex-col gap-1">
+                        {fmtCurrency(r.estimated_cost)}
+                        <span className={cn(
+                          "inline-flex w-fit px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                          r.gst_inclusive ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-slate-50 text-slate-500 border border-slate-100"
+                        )}>
+                          {r.gst_inclusive ? 'Incl. GST' : 'Excl. GST'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-[12px] font-bold text-[var(--navy)]">{r.division}</div>
@@ -1041,7 +1062,7 @@ export default function Tender() {
             </div>
 
             {/* Sub-Header / Status Bar */}
-            <div className="px-6 py-3 bg-white border-b border-slate-50 flex items-center justify-between">
+            <div className="px-6 py-3 bg-white border-b border-slate-50 flex items-center justify-between flex-wrap gap-y-4">
               <div className="flex gap-6">
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-slate-400 uppercase">Division</span>
@@ -1074,29 +1095,32 @@ export default function Tender() {
             </div>
 
             {/* Tab Navigation */}
-            <div className="px-6 bg-slate-50/50 border-b border-slate-100 overflow-x-auto no-scrollbar">
-              <div className="flex gap-4">
-                {TENDER_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      "flex items-center gap-2 py-4 px-2 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2",
-                      activeTab === tab.id
-                        ? "border-[var(--teal)] text-[var(--teal)]"
-                        : "border-transparent text-slate-400 hover:text-slate-600"
-                    )}
-                  >
-                    <tab.icon size={14} />
+            <div className="flex border-b border-slate-100 bg-white overflow-x-auto scrollbar-hide">
+              {TENDER_TABS.map((tab, i) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(i)}
+                  className={cn(
+                    "flex-1 flex flex-col items-center gap-1 py-3 px-2 text-[10px] font-bold uppercase tracking-wider transition-all relative whitespace-nowrap min-w-0",
+                    activeTab === i
+                      ? "text-[var(--teal)]"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  <tab.icon size={16} className="shrink-0" />
+                  <span className="truncate w-full text-center text-[9px]">
                     {tab.label}
-                  </button>
-                ))}
-              </div>
+                  </span>
+                  {activeTab === i && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--teal)] rounded-full" />
+                  )}
+                </button>
+              ))}
             </div>
 
             {/* Tab Content Area */}
             <div className="flex-1 overflow-y-auto p-8 bg-white">
-              <div className="max-w-4xl mx-auto">
+              <div className="max-w-5xl mx-auto">
                 
                 {/* 1. PUBLISHED TAB */}
                 {activeTab === 0 && (
@@ -1146,6 +1170,57 @@ export default function Tender() {
                           onChange={(e) => setEditForm({ ...editForm, tender_float_date: e.target.value })}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
                         />
+                      </div>
+
+                      <div className="space-y-4 md:col-span-2 p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
+                          <div className="space-y-2 flex-1">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                              Estimated Cost (Rs.)
+                              <span className="text-[10px] text-[var(--teal)] font-medium normal-case flex items-center gap-1">
+                                <Info size={10} />
+                                {editForm.gst_inclusive ? 'Inclusive of GST' : 'Exclusive of GST'}
+                              </span>
+                            </label>
+                            <input
+                              type="number"
+                              value={editForm.estimated_cost || ''}
+                              onChange={(e) => setEditForm({ ...editForm, estimated_cost: Number(e.target.value) })}
+                              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[var(--teal)] shadow-sm"
+                            />
+                            {editForm.estimated_cost > 0 && (
+                              <p className="text-[11px] font-bold text-[var(--teal)] px-1">
+                                {fmtCurrency(editForm.estimated_cost)}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-3 min-w-[240px]">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block">GST Toggle</label>
+                            <div className="flex items-center gap-4 bg-white p-1.5 rounded-xl border border-slate-100 shadow-sm">
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, gst_inclusive: false })}
+                                className={cn(
+                                  "flex-1 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                                  !editForm.gst_inclusive ? "bg-slate-100 text-slate-700 shadow-inner" : "text-slate-400 hover:text-slate-600"
+                                )}
+                              >
+                                Exclusive
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, gst_inclusive: true })}
+                                className={cn(
+                                  "flex-1 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                                  editForm.gst_inclusive ? "bg-amber-100 text-amber-700 shadow-inner" : "text-slate-400 hover:text-slate-600"
+                                )}
+                              >
+                                Inclusive
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -1204,50 +1279,88 @@ export default function Tender() {
                       <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
                          <div className="space-y-4">
                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">1. Official Tender Document (NIT)</h4>
-                            <div className="flex items-center gap-4">
-                               <label className="flex-1 cursor-pointer group">
-                                 <div className="flex items-center justify-center gap-3 px-4 py-6 border-2 border-dashed border-slate-200 rounded-xl group-hover:border-[var(--teal)] group-hover:bg-white transition-all">
-                                   <Upload size={16} className="text-slate-400 group-hover:text-[var(--teal)]" />
-                                   <span className="text-[10px] font-bold text-slate-500 group-hover:text-[var(--teal)]">
-                                     {editForm.tender_document ? 'Change NIT' : 'Upload NIT'}
-                                   </span>
-                                 </div>
-                                 <input 
-                                   type="file" 
-                                   className="hidden" 
-                                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'tender_document', 'nit')} 
-                                 />
-                               </label>
-                               {editForm.tender_document && (
-                                 <a href={editForm.tender_document} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-white shadow-sm border border-slate-100 rounded-xl hover:text-[var(--teal)] transition-all">
-                                   <FileText size={18} className="text-teal-600" />
-                                 </a>
-                               )}
-                            </div>
+                            {uploading === 'tender_document' ? (
+                              <div className="flex flex-col items-center justify-center p-6 bg-white border-2 border-dashed border-teal-100 rounded-xl">
+                                <Loader2 size={24} className="text-[var(--teal)] animate-spin mb-2" />
+                                <span className="text-xs font-bold text-teal-600">Uploading NIT...</span>
+                              </div>
+                            ) : !editForm.tender_document ? (
+                              <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl hover:border-[var(--teal)] hover:bg-teal-50/30 transition-all cursor-pointer group">
+                                <Upload size={24} className="text-slate-300 group-hover:text-[var(--teal)]" />
+                                <span className="text-xs font-bold text-slate-400 group-hover:text-[var(--teal)]">
+                                  Click to upload NIT Document
+                                </span>
+                                <span className="text-[10px] text-slate-300">
+                                  PDF, DOCX, JPG (Max 10MB)
+                                </span>
+                                <input type="file" className="hidden" 
+                                  onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'tender_document', 'nit')}
+                                />
+                              </label>
+                            ) : (
+                              <div className="flex items-center justify-between p-4 bg-teal-50 border border-teal-200 rounded-xl">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center text-teal-600">
+                                    <FileText size={20} />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-teal-700">✓ Document Uploaded</p>
+                                    <a href={editForm.tender_document} target="_blank" rel="noreferrer" className="text-[10px] text-teal-500 hover:underline font-medium">
+                                      View Document →
+                                    </a>
+                                  </div>
+                                </div>
+                                <label className="cursor-pointer text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors">
+                                  Replace
+                                  <input type="file" className="hidden"
+                                    onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'tender_document', 'nit')}
+                                  />
+                                </label>
+                              </div>
+                            )}
                          </div>
 
                          <div className="space-y-4">
                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">2. GeM Bid Document</h4>
-                            <div className="flex items-center gap-4">
-                               <label className="flex-1 cursor-pointer group">
-                                 <div className="flex items-center justify-center gap-3 px-4 py-6 border-2 border-dashed border-slate-200 rounded-xl group-hover:border-[var(--teal)] group-hover:bg-white transition-all">
-                                   <Upload size={16} className="text-slate-400 group-hover:text-[var(--teal)]" />
-                                   <span className="text-[10px] font-bold text-slate-500 group-hover:text-[var(--teal)]">
-                                     {editForm.gem_bid_document ? 'Change GeM Bid' : 'Upload GeM Bid'}
-                                   </span>
-                                 </div>
-                                 <input 
-                                   type="file" 
-                                   className="hidden" 
-                                   onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_bid_document', 'gem_bid')} 
-                                 />
-                               </label>
-                               {editForm.gem_bid_document && (
-                                 <a href={editForm.gem_bid_document} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-white shadow-sm border border-slate-100 rounded-xl hover:text-[var(--teal)] transition-all">
-                                   <FileText size={18} className="text-teal-600" />
-                                 </a>
-                               )}
-                            </div>
+                            {uploading === 'gem_bid_document' ? (
+                              <div className="flex flex-col items-center justify-center p-6 bg-white border-2 border-dashed border-teal-100 rounded-xl">
+                                <Loader2 size={24} className="text-[var(--teal)] animate-spin mb-2" />
+                                <span className="text-xs font-bold text-teal-600">Uploading GeM Bid...</span>
+                              </div>
+                            ) : !editForm.gem_bid_document ? (
+                              <label className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-200 rounded-xl hover:border-[var(--teal)] hover:bg-teal-50/30 transition-all cursor-pointer group">
+                                <Upload size={24} className="text-slate-300 group-hover:text-[var(--teal)]" />
+                                <span className="text-xs font-bold text-slate-400 group-hover:text-[var(--teal)]">
+                                  Click to upload GeM Bid Document
+                                </span>
+                                <span className="text-[10px] text-slate-300">
+                                  PDF, DOCX, JPG (Max 10MB)
+                                </span>
+                                <input type="file" className="hidden" 
+                                  onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_bid_document', 'gem_bid')}
+                                />
+                              </label>
+                            ) : (
+                              <div className="flex items-center justify-between p-4 bg-teal-50 border border-teal-200 rounded-xl">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center text-teal-600">
+                                    <FileText size={20} />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-teal-700">✓ Document Uploaded</p>
+                                    <a href={editForm.gem_bid_document} target="_blank" rel="noreferrer" className="text-[10px] text-teal-500 hover:underline font-medium">
+                                      View Document →
+                                    </a>
+                                  </div>
+                                </div>
+                                <label className="cursor-pointer text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors">
+                                  Replace
+                                  <input type="file" className="hidden"
+                                    onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_bid_document', 'gem_bid')}
+                                  />
+                                </label>
+                              </div>
+                            )}
                          </div>
                       </div>
                     </div>
@@ -1285,27 +1398,43 @@ export default function Tender() {
                       </h4>
                       
                       {/* Bidder Addition Form */}
-                      <form onSubmit={handleAddBidder} className="flex gap-4 mb-6">
-                        <input
-                          type="text"
-                          placeholder="Bidder Agency Name..."
-                          value={newBidder.bidder_name}
-                          onChange={(e) => setNewBidder({ ...newBidder, bidder_name: e.target.value })}
-                          className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
-                        />
-                        <select
-                          value={newBidder.emd_status}
-                          onChange={(e) => setNewBidder({ ...newBidder, emd_status: e.target.value })}
-                          className="w-40 px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none"
-                        >
-                          <option value="Submitted">EMD Submitted</option>
-                          <option value="Exempted">Exempted</option>
-                          <option value="Pending">Pending</option>
-                        </select>
-                        <button type="submit" className="p-3 bg-[var(--teal)] text-white rounded-xl hover:bg-teal-700 transition-all font-bold">
-                          <Plus size={20} />
-                        </button>
-                      </form>
+                      <div className="space-y-3 mb-6">
+                        <form onSubmit={handleAddBidder} className="flex gap-4">
+                          <input
+                            type="text"
+                            placeholder="Bidder Agency Name..."
+                            value={newBidder.bidder_name}
+                            onChange={(e) => setNewBidder({ ...newBidder, bidder_name: e.target.value })}
+                            className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
+                          />
+                          <select
+                            value={newBidder.emd_status}
+                            onChange={(e) => setNewBidder({ ...newBidder, emd_status: e.target.value })}
+                            className="w-40 px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none"
+                          >
+                            <option value="Submitted">EMD Submitted</option>
+                            <option value="Exempted">Exempted</option>
+                            <option value="Pending">Pending</option>
+                          </select>
+                          <button 
+                            type="submit" 
+                            disabled={editForm.no_of_bids_received > 0 && bidders.length >= editForm.no_of_bids_received}
+                            className="p-3 bg-[var(--teal)] text-white rounded-xl hover:bg-teal-700 transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Plus size={20} />
+                          </button>
+                        </form>
+                        <div className="flex items-center justify-between px-2">
+                          <span className={cn(
+                            "text-[10px] font-bold flex items-center gap-1.5",
+                            editForm.no_of_bids_received > 0 && bidders.length >= editForm.no_of_bids_received ? "text-rose-500" : "text-slate-400"
+                          )}>
+                            <Users size={12} />
+                            Added: {bidders.length} of {editForm.no_of_bids_received || '∞'}
+                            {editForm.no_of_bids_received > 0 && bidders.length >= editForm.no_of_bids_received && " (Limit reached)"}
+                          </span>
+                        </div>
+                      </div>
 
                       {/* Bidders Table */}
                       <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
@@ -1495,9 +1624,19 @@ export default function Tender() {
                                 <input
                                   type="text"
                                   placeholder="Reason..."
-                                  value={bidder.disqualification_reason || ''}
-                                  onChange={(e) => updateBidderStatus(bidder.bidder_id, 'Disqualified', e.target.value)}
-                                  className="w-40 px-3 py-1.5 border border-rose-100 rounded-lg text-[11px] outline-none focus:border-rose-400"
+                                  value={editingReason?.id === bidder.bidder_id ? editingReason.value : bidder.disqualification_reason || ''}
+                                  onChange={(e) => setEditingReason({ id: bidder.bidder_id, value: e.target.value })}
+                                  onBlur={() => {
+                                    if (editingReason?.id === bidder.bidder_id) {
+                                      setBidders(prev => prev.map(b => 
+                                        b.bidder_id === bidder.bidder_id 
+                                          ? {...b, disqualification_reason: editingReason.value} 
+                                          : b
+                                      ));
+                                      setEditingReason(null);
+                                    }
+                                  }}
+                                  className="w-40 px-3 py-1.5 border border-rose-100 rounded-lg text-[11px] outline-none focus:border-rose-400 transition-all shadow-sm"
                                 />
                               )}
                             </div>
@@ -1513,55 +1652,61 @@ export default function Tender() {
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-8 border-b border-slate-100">
                        <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Opening Date</label>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Price Bid Opening Date</label>
                         <input
                           type="date"
                           value={editForm.price_bid_opening_date?.split('T')[0] || ''}
                           onChange={(e) => setEditForm({ ...editForm, price_bid_opening_date: e.target.value })}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Estimated Cost</label>
-                        <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-600">
-                          {fmtCurrency(editForm.estimated_cost || 0)}
-                        </div>
+                       <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">No. of Price Bids Opened</label>
+                        <input
+                          type="number"
+                          value={editForm.tc_qualified_count || 0}
+                          readOnly
+                          className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 cursor-not-allowed"
+                        />
                       </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
                        <div className="bg-slate-50 py-4 px-6 border-b border-slate-100">
-                          <h4 className="flex items-center gap-3 text-sm font-bold text-[var(--navy)]">
+                          <h4 className="flex items-center gap-3 text-sm font-bold [var(--navy)]">
                             <Hash size={18} className="text-[var(--teal)]" />
-                            Financial Ranking
+                            Financial Ranking Table
                           </h4>
                        </div>
-                       <div className="p-1">
+                       <div className="p-0">
                           <table className="w-full text-left text-xs">
                              <thead>
                                 <tr className="text-slate-400 font-bold uppercase tracking-[0.1em] border-b border-slate-50">
-                                   <th className="px-5 py-4">Bidder Name</th>
-                                   <th className="px-5 py-4">Status</th>
-                                   <th className="px-5 py-4">Bid Amount (Rs)</th>
-                                   <th className="px-5 py-4 text-center">Estimate %</th>
-                                   <th className="px-5 py-4 text-center">Rank</th>
+                                   <th className="px-6 py-4">Bidder Name</th>
+                                   <th className="px-6 py-4">Qualification</th>
+                                   <th className="px-6 py-4">Bid Amount (Rs)</th>
+                                   <th className="px-6 py-4 text-center">Estimate %</th>
+                                   <th className="px-6 py-4 text-center">Rank</th>
                                 </tr>
                              </thead>
                              <tbody className="divide-y divide-slate-50">
                                 {bidders.map((bidder) => {
                                   const isQualified = bidder.technical_status === 'Qualified';
                                   return (
-                                    <tr key={bidder.bidder_id} className={cn(!isQualified && "opacity-60 bg-slate-50/50")}>
-                                      <td className="px-5 py-4 font-bold text-slate-700">{bidder.bidder_name}</td>
-                                      <td className="px-5 py-4">
+                                    <tr key={bidder.bidder_id} className={cn(!isQualified && "opacity-50 bg-slate-50/50")}>
+                                      <td className="px-6 py-4">
+                                        <div className="font-bold text-slate-700">{bidder.bidder_name}</div>
+                                      </td>
+                                      <td className="px-6 py-4">
                                         <span className={cn(
-                                          "px-2 py-0.5 rounded text-[9px] font-black uppercase",
-                                          isQualified ? "text-emerald-500" : "text-rose-400"
+                                          "px-2 py-0.5 rounded text-[9px] font-black uppercase inline-flex items-center gap-1",
+                                          isQualified ? "text-emerald-500 bg-emerald-50" : "text-rose-400 bg-rose-50"
                                         )}>
+                                          {isQualified ? <Check size={10} /> : <X size={10} />}
                                           {isQualified ? 'QUALIFIED' : 'REJECTED'}
                                         </span>
                                       </td>
-                                      <td className="px-5 py-4">
+                                      <td className="px-6 py-4">
                                         {isQualified ? (
                                           <input
                                             type="number"
@@ -1570,35 +1715,70 @@ export default function Tender() {
                                             onChange={(e) => {
                                               const amt = Number(e.target.value);
                                               const est = editForm.estimated_cost || 0;
-                                              const diff = est > 0 ? ((amt - est) / est) * 100 : 0;
-                                              const pct = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`;
                                               
-                                              setBidders(bidders.map(b => 
-                                                b.bidder_id === bidder.bidder_id ? { ...b, bid_amount: amt, percentage_vs_estimate: pct } : b
-                                              ));
+                                              // 1. Update this bidder's amount
+                                              const updatedBidders = bidders.map(b => 
+                                                b.bidder_id === bidder.bidder_id ? { ...b, bid_amount: amt } : b
+                                              );
+
+                                              // 2. Recalculate all ranks live
+                                              const qualified = updatedBidders.filter(b => b.technical_status === 'Qualified');
+                                              const priced = [...qualified]
+                                                .filter(b => (b.bid_amount || 0) > 0)
+                                                .sort((a, b) => (a.bid_amount || 0) - (b.bid_amount || 0));
+
+                                              const finalBidders = updatedBidders.map(b => {
+                                                if (b.technical_status === 'Qualified' && (b.bid_amount || 0) > 0) {
+                                                  const idx = priced.findIndex(s => s.bidder_id === b.bidder_id);
+                                                  const rank = idx >= 0 ? `L${idx + 1}` : null;
+                                                  
+                                                  const diff = est > 0 ? (((b.bid_amount || 0) - est) / est) * 100 : 0;
+                                                  const pct = `${diff > 0 ? '+' : ''}${diff.toFixed(2)}%`;
+                                                  
+                                                  return { ...b, financial_rank: rank, percentage_vs_estimate: pct };
+                                                }
+                                                return { ...b, financial_rank: null, percentage_vs_estimate: null };
+                                              });
+
+                                              setBidders(finalBidders);
+                                              
+                                              // 3. Update L1 summary in form state if we have a top bidder
+                                              if (priced.length > 0) {
+                                                const l1 = priced[0];
+                                                const l1_diff = est > 0 ? (((l1.bid_amount || 0) - est) / est) * 100 : 0;
+                                                setEditForm(prev => ({
+                                                  ...prev,
+                                                  l1_bidder_name: l1.bidder_name,
+                                                  l1_amount: l1.bid_amount,
+                                                  l1_percentage: `${l1_diff > 0 ? '+' : ''}${l1_diff.toFixed(2)}%`
+                                                }));
+                                              }
                                             }}
-                                            className="w-32 px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold bg-white focus:border-[var(--teal)] outline-none"
+                                            className="w-40 px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold bg-white focus:border-[var(--teal)] outline-none transition-all shadow-sm"
                                           />
                                         ) : (
                                           <span className="text-slate-400 font-medium italic">N/A</span>
                                         )}
                                       </td>
-                                      <td className="px-5 py-4 text-center">
+                                      <td className="px-6 py-4 text-center">
                                         {isQualified && bidder.bid_amount ? (
                                           <span className={cn(
-                                            "font-bold",
+                                            "font-bold text-[11px]",
                                             (bidder.percentage_vs_estimate || '').startsWith('-') ? "text-teal-600" : "text-rose-600"
                                           )}>
                                             {bidder.percentage_vs_estimate}
                                           </span>
                                         ) : '—'}
                                       </td>
-                                      <td className="px-5 py-4 text-center">
+                                      <td className="px-6 py-4 text-center">
                                          {isQualified && bidder.financial_rank ? (
-                                           <span className="inline-block w-8 h-8 flex items-center justify-center bg-[var(--teal)] text-white rounded-full font-black text-[10px]">
+                                           <span className={cn(
+                                             "inline-flex w-8 h-8 items-center justify-center rounded-full font-black text-[10px] shadow-sm transition-all",
+                                             bidder.financial_rank === 'L1' ? "bg-[var(--teal)] text-white scale-110" : "bg-slate-100 text-slate-500"
+                                           )}>
                                              {bidder.financial_rank}
                                            </span>
-                                         ) : '—'}
+                                         ) : <span className="text-slate-300">—</span>}
                                       </td>
                                     </tr>
                                   );
@@ -1607,6 +1787,45 @@ export default function Tender() {
                           </table>
                        </div>
                     </div>
+
+                    {/* L1 SUMMARY CARD */}
+                    {bidders.some(b => b.financial_rank === 'L1') && (
+                      <div className="bg-teal-50 border border-teal-100 rounded-2xl p-6 animate-in zoom-in-95 duration-300">
+                        <div className="flex items-center justify-between mb-4">
+                           <h4 className="flex items-center gap-2 text-sm font-bold text-teal-800 uppercase tracking-wider">
+                             <Trophy size={18} className="text-amber-500" />
+                             Financial Standing Summary (L1)
+                           </h4>
+                           <span className="px-3 py-1 bg-white border border-teal-200 rounded-full text-[10px] font-black text-teal-600 uppercase tracking-widest shadow-sm">
+                             Rankings Calculated
+                           </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                           <div className="bg-white p-4 rounded-xl shadow-sm border border-teal-100/50">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Lowest Bidder (L1)</label>
+                              <div className="text-sm font-black text-slate-800 truncate">
+                                {bidders.find(b => b.financial_rank === 'L1')?.bidder_name}
+                              </div>
+                           </div>
+                           <div className="bg-white p-4 rounded-xl shadow-sm border border-teal-100/50">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Bid Amount</label>
+                              <div className="text-sm font-black text-teal-600">
+                                {fmtCurrency(bidders.find(b => b.financial_rank === 'L1')?.bid_amount || 0)}
+                              </div>
+                           </div>
+                           <div className="bg-white p-4 rounded-xl shadow-sm border border-teal-100/50">
+                              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Vs Estimate %</label>
+                              <div className={cn(
+                                "text-sm font-black",
+                                (bidders.find(b => b.financial_rank === 'L1')?.percentage_vs_estimate || '').startsWith('-') ? "text-teal-600" : "text-rose-600"
+                              )}>
+                                {bidders.find(b => b.financial_rank === 'L1')?.percentage_vs_estimate || '0.00%'}
+                              </div>
+                           </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1656,24 +1875,6 @@ export default function Tender() {
                             5B — Award Decision
                           </h4>
                         </div>
-                         <div className="space-y-2">
-                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Award Recommendation Date</label>
-                          <input
-                            type="date"
-                            value={editForm.award_recommendation_date?.split('T')[0] || ''}
-                            onChange={(e) => setEditForm({ ...editForm, award_recommendation_date: e.target.value })}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">CA Approval Date</label>
-                          <input
-                            type="date"
-                            value={editForm.ca_award_approval_date?.split('T')[0] || ''}
-                            onChange={(e) => setEditForm({ ...editForm, ca_award_approval_date: e.target.value })}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
-                          />
-                        </div>
                         <div className="space-y-2">
                           <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Award Status</label>
                           <select
@@ -1722,25 +1923,57 @@ export default function Tender() {
 
                         <div className="p-8 bg-slate-50 border border-slate-200 rounded-2xl md:col-span-2">
                           <h4 className="text-[10px] font-bold text-[var(--teal)] uppercase tracking-widest mb-6">5C — GeM Contract Order</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <div className="space-y-2">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">GeM Contract No</label>
-                                <input 
-                                  type="text"
-                                  value={editForm.gem_contract_no || ''}
-                                  onChange={(e) => setEditForm({...editForm, gem_contract_no: e.target.value})}
-                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
-                                  placeholder="Order No / GEMC-..."
+                          <div className="space-y-6">
+                            {uploading === 'gem_contract_order' ? (
+                              <div className="flex flex-col items-center justify-center p-8 bg-white border-2 border-dashed border-teal-100 rounded-xl">
+                                <Loader2 size={24} className="text-[var(--teal)] animate-spin mb-2" />
+                                <span className="text-sm font-bold text-teal-600">Uploading GeM Contract...</span>
+                              </div>
+                            ) : !editForm.gem_contract_order ? (
+                              <label className="flex flex-col items-center justify-center gap-2 p-8 border-2 border-dashed border-slate-200 rounded-xl hover:border-[var(--teal)] hover:bg-teal-50/30 transition-all cursor-pointer group">
+                                <Upload size={32} className="text-slate-300 group-hover:text-[var(--teal)]" />
+                                <span className="text-sm font-bold text-slate-400 group-hover:text-[var(--teal)]">
+                                  Click to upload GeM Contract Order
+                                </span>
+                                <span className="text-xs text-slate-300">
+                                  PDF, DOCX, JPG (Max 10MB)
+                                </span>
+                                <input type="file" className="hidden" 
+                                  onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_contract_order', 'gem_contract')}
                                 />
-                             </div>
-                             <div className="space-y-2">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Contract Date</label>
-                                <input 
-                                  type="date"
-                                  value={editForm.gem_contract_date?.split('T')[0] || ''}
-                                  onChange={(e) => setEditForm({...editForm, gem_contract_date: e.target.value})}
-                                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)]"
-                                />
+                              </label>
+                            ) : (
+                              <div className="flex items-center justify-between p-5 bg-teal-50 border border-teal-200 rounded-xl">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center text-teal-600 shadow-sm">
+                                    <FileText size={24} />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-teal-700">✓ Contract Uploaded</p>
+                                    <a href={editForm.gem_contract_order} target="_blank" rel="noreferrer" className="text-xs text-teal-500 hover:underline font-medium">
+                                      View GeM Contract Order →
+                                    </a>
+                                  </div>
+                                </div>
+                                <label className="cursor-pointer px-4 py-2 bg-white border border-teal-200 rounded-lg text-xs font-bold text-teal-600 hover:bg-teal-100 transition-colors shadow-sm">
+                                  Replace
+                                  <input type="file" className="hidden"
+                                    onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0], 'gem_contract_order', 'gem_contract')}
+                                  />
+                                </label>
+                              </div>
+                            )}
+
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                               <div className="space-y-2">
+                                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">GeM Contract Date</label>
+                                  <input 
+                                    type="date"
+                                    value={editForm.gem_contract_date?.split('T')[0] || ''}
+                                    onChange={(e) => setEditForm({...editForm, gem_contract_date: e.target.value})}
+                                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:border-[var(--teal)] shadow-sm"
+                                  />
+                               </div>
                              </div>
                           </div>
                         </div>

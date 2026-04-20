@@ -79,7 +79,7 @@ export default function UnderApproval() {
 
   // Modals
   const [showEditModal, setShowEditModal] = useState<ApprovalRecord | null>(null);
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showMoveConfirm, setShowMoveConfirm] = useState<ApprovalRecord | null>(null);
@@ -361,8 +361,11 @@ export default function UnderApproval() {
 
       const autoStage = calcApprovalStage(showEditModal);
 
+      // Remove on_hold_reason from payload as per requirements
+      const { on_hold_reason, ...rest } = showEditModal;
+
       const updateData = {
-        ...showEditModal,
+        ...rest,
         current_stage: autoStage,
         estimate_document: fileUrl,
         last_updated: new Date().toISOString()
@@ -415,8 +418,11 @@ export default function UnderApproval() {
         .eq('approval_id', showMoveConfirm.approval_id);
       
       if (updateError) throw updateError;
+      
+      // 2. Generate Tender No
+      const tenderNo = await api.generateTenderNo();
 
-      // 2. Insert into tender
+      // 3. Insert into tender
       const { error: insertError } = await supabase
         .from('tender')
         .insert([{
@@ -428,7 +434,7 @@ export default function UnderApproval() {
           section: showMoveConfirm.section,
           estimated_cost: showMoveConfirm.estimated_cost,
           competent_authority: showMoveConfirm.competent_authority,
-          tender_no: `TND/${new Date().getFullYear()}/${Math.floor(Math.random() * 1000 + 100)}`,
+          tender_no: tenderNo,
           tender_type: 'Open Tender',
           current_stage: 'Tender Initiated',
           added_by: currentUser.name,
@@ -875,7 +881,7 @@ export default function UnderApproval() {
           </div>
         )}
 
-      {/* Edit Modal - 4 Step Form */}
+      {/* Edit Modal - 3 Step Form */}
       {showEditModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-[#0B1F3A]/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[900px] max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
@@ -901,11 +907,11 @@ export default function UnderApproval() {
               <div className="relative h-1 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className="absolute top-0 left-0 h-full bg-[#00C9A7] transition-all duration-500"
-                  style={{ width: `${(currentStep / 4) * 100}%` }}
+                  style={{ width: `${(currentStep / 3) * 100}%` }}
                 />
               </div>
               <div className="flex justify-between mt-6 relative">
-                {[1, 2, 3, 4].map((step) => (
+                {[1, 2, 3].map((step) => (
                   <div key={step} className="flex flex-col items-center gap-2 z-10">
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-300",
@@ -919,7 +925,7 @@ export default function UnderApproval() {
                       "text-[10px] font-bold uppercase tracking-widest",
                       currentStep === step ? "text-[#0B1F3A]" : "text-slate-300"
                     )}>
-                      {step === 1 ? 'Estimate' : step === 2 ? 'Finance' : step === 3 ? 'Approval' : 'Stage'}
+                      {step === 1 ? 'Estimate' : step === 2 ? 'Finance' : 'CA Approval'}
                     </span>
                   </div>
                 ))}
@@ -1123,36 +1129,6 @@ export default function UnderApproval() {
                   </div>
                 </div>
               )}
-
-              {currentStep === 4 && (
-                <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">Current Pipeline Stage</label>
-                      <div className="p-4 bg-[#00C9A7]/5 border border-[#00C9A7]/20 rounded-2xl">
-                        <div className="flex items-center gap-3">
-                          <div className={cn("px-3 py-1 rounded-full text-[11px] font-bold border shadow-sm", getStageBadge(calcApprovalStage(showEditModal)))}>
-                            Auto-calculated: {calcApprovalStage(showEditModal)}
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-2 font-medium uppercase tracking-wider">
-                          Stage is automatically determined based on filled information
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">On Hold Reason (Optional)</label>
-                      <textarea 
-                        value={showEditModal.on_hold_reason || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, on_hold_reason: e.target.value})}
-                        placeholder="If filled, status will automatically change to On Hold..."
-                        className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:border-[#00C9A7] focus:bg-white transition-all min-h-[100px]"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Footer */}
@@ -1167,7 +1143,7 @@ export default function UnderApproval() {
               </button>
 
               <div className="flex gap-4">
-                {currentStep < 4 ? (
+                {currentStep < 3 ? (
                   <button 
                     type="button"
                     onClick={() => setCurrentStep(prev => (prev + 1) as any)}
