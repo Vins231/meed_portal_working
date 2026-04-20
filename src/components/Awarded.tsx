@@ -321,12 +321,7 @@ export default function Awarded() {
       updated.revised_contract_value = (Number(updated.awarded_cost) || 0) + (Number(updated.extra_amount) || 0);
     }
 
-    if (field === 'payment_released' || field === 'income_tax_deducted' || field === 'gst_tds_deducted' || field === 'other_deductions') {
-      updated.net_payment_released = (Number(updated.payment_released) || 0) - 
-        (Number(updated.income_tax_deducted) || 0) - 
-        (Number(updated.gst_tds_deducted) || 0) - 
-        (Number(updated.other_deductions) || 0);
-    }
+    // Deduction calculations removed per request
 
     if (field === 'total_bills_value' || field === 'payment_released') {
       updated.payment_pending = (Number(updated.total_bills_value) || 0) - (Number(updated.payment_released) || 0);
@@ -645,16 +640,66 @@ export default function Awarded() {
                       </div>
                     </div>
                     <div className="space-y-4">
-                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Work Order / Agreement</h4>
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Work Order / Contract</h4>
+                      
+                      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl w-fit">
+                        <button 
+                          onClick={() => updateField('is_gem', true)}
+                          className={cn(
+                            "px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all",
+                            editForm.is_gem ? "bg-[var(--teal)] text-white" : "bg-white text-slate-500 border border-slate-200"
+                          )}
+                        >
+                          GeM Work
+                        </button>
+                        <button 
+                          onClick={() => updateField('is_gem', false)}
+                          className={cn(
+                            "px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all",
+                            !editForm.is_gem ? "bg-[var(--teal)] text-white" : "bg-white text-slate-500 border border-slate-200"
+                          )}
+                        >
+                          Non-GeM Work
+                        </button>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4">
-                        <Field label="WO No." value={editForm.work_order_no} onChange={v => updateField('work_order_no', v)} />
-                        <Field label="WO Date" type="date" value={editForm.work_order_date} onChange={v => updateField('work_order_date', v)} />
-                        <Field label="LOA No." value={editForm.loa_no} onChange={v => updateField('loa_no', v)} />
-                        <Field label="LOA Date" type="date" value={editForm.loa_date} onChange={v => updateField('loa_date', v)} />
-                        <Field label="Agreement No." value={editForm.agreement_no} onChange={v => updateField('agreement_no', v)} />
-                        <Field label="Agreement Date" type="date" value={editForm.agreement_date} onChange={v => updateField('agreement_date', v)} />
-                        <Field label="NIT No." value={editForm.nit_no} onChange={v => updateField('nit_no', v)} />
-                        <SelectField label="Integrity Pact" value={editForm.integrity_pact} options={['Yes', 'No', 'NA']} onChange={v => updateField('integrity_pact', v)} />
+                        {editForm.is_gem ? (
+                          <>
+                            <Field label="GeM Contract No" value={editForm.gem_contract_no} onChange={v => updateField('gem_contract_no', v)} />
+                            <Field label="GeM Contract Date" type="date" value={editForm.gem_contract_date} onChange={v => updateField('gem_contract_date', v)} />
+                          </>
+                        ) : (
+                          <>
+                            <Field label="Work Order No" value={editForm.work_order_no} onChange={v => updateField('work_order_no', v)} />
+                            <Field label="Work Order Date" type="date" value={editForm.work_order_date} onChange={v => updateField('work_order_date', v)} />
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Post-Award Documents */}
+                  <div className="space-y-4">
+                    <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Post-Award Documents</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <SelectField label="Agreement Status" value={editForm.agreement_status} options={['Not Submitted', 'Submitted', 'NA']} onChange={v => updateField('agreement_status', v)} />
+                        {editForm.agreement_status === 'Submitted' && (
+                          <Field label="Agreement Date" type="date" value={editForm.agreement_date} onChange={v => updateField('agreement_date', v)} />
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <SelectField label="Integrity Pact" value={editForm.integrity_pact_status} options={['Not Submitted', 'Submitted', 'NA']} onChange={v => updateField('integrity_pact_status', v)} />
+                        {editForm.integrity_pact_status === 'Submitted' && (
+                          <Field label="Integrity Pact Date" type="date" value={editForm.integrity_pact_date} onChange={v => updateField('integrity_pact_date', v)} />
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <SelectField label="NDA Agreement" value={editForm.nda_status} options={['Not Submitted', 'Submitted', 'NA']} onChange={v => updateField('nda_status', v)} />
+                        {editForm.nda_status === 'Submitted' && (
+                          <Field label="NDA Date" type="date" value={editForm.nda_date} onChange={v => updateField('nda_date', v)} />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -676,11 +721,8 @@ export default function Awarded() {
                       </div>
                     </div>
                     <div className="space-y-4">
-                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Deposits & Mobilisation</h4>
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Mobilisation</h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <Field label="Security Deposit" type="number" value={editForm.security_deposit} onChange={v => updateField('security_deposit', v)} />
-                        <Field label="EMD Amount" type="number" value={editForm.emd_amount} onChange={v => updateField('emd_amount', v)} />
-                        <SelectField label="NDA Agreement" value={editForm.nda_agreement} options={['Yes', 'No']} onChange={v => updateField('nda_agreement', v)} />
                         <Field label="Mobilisation Adv." type="number" value={editForm.mobilisation_advance} onChange={v => updateField('mobilisation_advance', v)} />
                         <Field label="Advance Recovered" type="number" value={editForm.advance_recovered} onChange={v => updateField('advance_recovered', v)} />
                       </div>
@@ -745,33 +787,21 @@ export default function Awarded() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
-                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Payment Tracking</h4>
+                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Payment Tracking Cabinet</h4>
                       <div className="grid grid-cols-2 gap-4">
                         <Field label="Total Bills Submitted" type="number" value={editForm.total_bills_value} onChange={v => updateField('total_bills_value', v)} />
                         <Field label="Date of Last Bill" type="date" value={editForm.last_bill_date} onChange={v => updateField('last_bill_date', v)} />
-                        <DisplayField label="Payment Released" value={fmtCurrency(editForm.payment_released || 0)} />
+                        <div className="space-y-1">
+                          <DisplayField label="Payment Released" value={fmtCurrency(editForm.payment_released || 0)} />
+                          <p className="text-[9px] text-slate-400 font-medium italic px-1">Updated via Payment button</p>
+                        </div>
                         <DisplayField label="Payment Pending" value={fmtCurrency(editForm.payment_pending || 0)} color="text-[var(--rose)]" />
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">EE Proposal</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <Field label="Proposal No." value={editForm.ee_proposal_no} onChange={v => updateField('ee_proposal_no', v)} />
-                        <Field label="Proposal Date" type="date" value={editForm.ee_proposal_date} onChange={v => updateField('ee_proposal_date', v)} />
-                        <Field label="Proposal Amount" type="number" value={editForm.ee_proposal_amount} onChange={v => updateField('ee_proposal_amount', v)} />
-                        <SelectField label="Proposal Status" value={editForm.ee_proposal_status} options={['Not Applicable', 'Draft', 'Submitted', 'Approved', 'Rejected', 'Returned']} onChange={v => updateField('ee_proposal_status', v)} />
-                        <Field label="Approval Date" type="date" value={editForm.ee_approval_date} onChange={v => updateField('ee_approval_date', v)} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-[11px] font-bold text-[var(--teal)] uppercase tracking-widest border-b border-slate-100 pb-1">Deductions</h4>
-                    <div className="grid grid-cols-4 gap-4">
-                      <Field label="Income Tax" type="number" value={editForm.income_tax_deducted} onChange={v => updateField('income_tax_deducted', v)} />
-                      <Field label="GST TDS" type="number" value={editForm.gst_tds_deducted} onChange={v => updateField('gst_tds_deducted', v)} />
-                      <Field label="Other Deductions" type="number" value={editForm.other_deductions} onChange={v => updateField('other_deductions', v)} />
-                      <DisplayField label="Net Payment Released" value={fmtCurrency(editForm.net_payment_released || 0)} color="text-[var(--teal)]" />
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        Payment Release and bill details are tracked here. Use the Payment button in the list to record new releases.
+                      </p>
                     </div>
                   </div>
                 </div>

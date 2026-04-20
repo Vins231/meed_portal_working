@@ -197,6 +197,14 @@ export interface AwardedRecord {
   last_site_visit: string;
   ld_applicable: string;
   ld_amount: number;
+  is_gem?: boolean;
+  gem_contract_no?: string;
+  gem_contract_date?: string;
+  agreement_status?: string;
+  integrity_pact_status?: string;
+  integrity_pact_date?: string;
+  nda_status?: string;
+  nda_date?: string;
 }
 
 export interface BGRecord {
