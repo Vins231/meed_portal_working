@@ -9,6 +9,7 @@ import {
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
 import { api } from '../services/api';
+import { supabase } from '../lib/supabase';
 import { User, ActivityLog, BGRecord } from '../types';
 import ErrorMessage from './ErrorMessage';
 
@@ -20,22 +21,191 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [completionData, setCompletionData] = useState<{
+    approval: { total: number; avgCompletion: number; missing: string[] };
+    tender: { total: number; avgCompletion: number; missing: string[] };
+    awarded: { total: number; avgCompletion: number; missing: string[] };
+  } | null>(null);
+  const [completionLoading, setCompletionLoading] = useState(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('meed_user');
     if (savedUser) setUser(JSON.parse(savedUser));
     fetchData();
+    fetchCompletionData();
   }, []);
+
+  const fetchCompletionData = async () => {
+    setCompletionLoading(true);
+    try {
+      // ── UNDER APPROVAL ──
+      const { data: approvals } = await supabase
+        .from('under_approval')
+        .select('*')
+        .not('current_stage', 'in', ['Tendered', 'Dropped']);
+
+      const approvalScores = (approvals || []).map(r => {
+        let score = 0;
+        const missing: string[] = [];
+        if (r.estimate_no) score += 20; 
+        else missing.push('Estimate No');
+        if (r.estimated_cost && Number(r.estimated_cost) > 0) score += 20; 
+        else missing.push('Estimated Cost');
+        if (r.work_type) score += 10; 
+        else missing.push('Work Type');
+        if (r.fc_no && r.fc_date) score += 20; 
+        else missing.push('Finance Concurrence');
+        if (r.ca_date) score += 20; 
+        else missing.push('CA Approval Date');
+        if (r.estimate_document) score += 10; 
+        else missing.push('Estimate Document');
+        return { score, missing };
+      });
+
+      const approvalAvg = approvalScores.length > 0
+        ? Math.round(approvalScores.reduce((a, b) => a + b.score, 0) / approvalScores.length)
+        : 0;
+
+      const approvalMissingCount: Record<string, number> = {};
+      approvalScores.forEach(r => r.missing.forEach(m => {
+        approvalMissingCount[m] = (approvalMissingCount[m] || 0) + 1;
+      }));
+      const approvalTopMissing = Object.entries(approvalMissingCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([field, count]) => `${field} (${count} records)`);
+
+      // ── TENDER ──
+      const { data: tenders } = await supabase
+        .from('tender')
+        .select('*')
+        .not('current_stage', 'in', ['Awarded', 'Cancelled']);
+
+      const tenderScores = (tenders || []).map(r => {
+        let score = 0;
+        const missing: string[] = [];
+        if (r.tender_float_date) score += 15; 
+        else missing.push('Publish Date');
+        if (r.bid_submission_deadline) score += 10; 
+        else missing.push('Bid Deadline');
+        if (r.bid_opening_date) score += 5; 
+        else missing.push('Bid Opening Date');
+        if (r.estimated_cost && Number(r.estimated_cost) > 0) score += 10; 
+        else missing.push('Estimated Cost');
+        if (r.tender_document) score += 5; 
+        else missing.push('NIT Document');
+        if (r.no_of_bids_received && Number(r.no_of_bids_received) > 0) score += 15; 
+        else missing.push('Bids Received Count');
+        if (r.price_bid_tc_date) score += 10; 
+        else missing.push('TC for Price Bid');
+        if (r.l1_bidder_name) score += 15; 
+        else missing.push('L1 Bidder');
+        if (r.award_tc_date) score += 10; 
+        else missing.push('TC for Award');
+        if (r.award_status && r.award_status !== 'Pending') score += 5; 
+        else missing.push('Award Decision');
+        return { score, missing };
+      });
+
+      const tenderAvg = tenderScores.length > 0
+        ? Math.round(tenderScores.reduce((a, b) => a + b.score, 0) / tenderScores.length)
+        : 0;
+
+      const tenderMissingCount: Record<string, number> = {};
+      tenderScores.forEach(r => r.missing.forEach(m => {
+        tenderMissingCount[m] = (tenderMissingCount[m] || 0) + 1;
+      }));
+      const tenderTopMissing = Object.entries(tenderMissingCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([field, count]) => `${field} (${count} records)`);
+
+      // ── AWARDED WORKS ──
+      const { data: awarded } = await supabase
+        .from('awarded_works')
+        .select('*')
+        .neq('overall_status', 'Completed');
+
+      const awardedScores = (awarded || []).map(r => {
+        let score = 0;
+        const missing: string[] = [];
+        if (r.work_order_no || r.gem_contract_no) score += 15; 
+        else missing.push('Work Order / Contract');
+        if (r.work_order_date || r.gem_contract_date) score += 10; 
+        else missing.push('WO / Contract Date');
+        if (r.contractor_name) score += 5; 
+        else missing.push('Contractor Name');
+        if (r.start_date) score += 10; 
+        else missing.push('Start Date');
+        if (r.completion_period_days) score += 5; 
+        else missing.push('Contract Period');
+        if (Number(r.physical_progress_percent) > 0) score += 20; 
+        else missing.push('Progress %');
+        if (r.total_bills_value) score += 15; 
+        else missing.push('Bills Submitted');
+        if (r.dlp_end_date) score += 10; 
+        else missing.push('DLP End Date');
+        if (r.scheduled_completion) score += 10; 
+        else missing.push('Scheduled Completion');
+        return { score, missing };
+      });
+
+      const awardedAvg = awardedScores.length > 0
+        ? Math.round(awardedScores.reduce((a, b) => a + b.score, 0) / awardedScores.length)
+        : 0;
+
+      const awardedMissingCount: Record<string, number> = {};
+      awardedScores.forEach(r => r.missing.forEach(m => {
+        awardedMissingCount[m] = (awardedMissingCount[m] || 0) + 1;
+      }));
+      const awardedTopMissing = Object.entries(awardedMissingCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([field, count]) => `${field} (${count} records)`);
+
+      setCompletionData({
+        approval: {
+          total: approvals?.length || 0,
+          avgCompletion: approvalAvg,
+          missing: approvalTopMissing
+        },
+        tender: {
+          total: tenders?.length || 0,
+          avgCompletion: tenderAvg,
+          missing: tenderTopMissing
+        },
+        awarded: {
+          total: awarded?.length || 0,
+          avgCompletion: awardedAvg,
+          missing: awardedTopMissing
+        }
+      });
+    } catch (err) {
+      console.error('Completion fetch failed:', err);
+    } finally {
+      setCompletionLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
       const dashboardData = await api.getDashboardData();
+      if (!dashboardData) {
+        throw new Error("Dashboard data received was empty");
+      }
       setData(dashboardData);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to load dashboard data");
+      console.error("Dashboard Load Error:", err);
+      // More descriptive error for common Supabase failures
+      if (err.message?.includes('JWT')) {
+        setError("Your session has expired. Please log in again.");
+      } else if (err.message?.includes('fetch')) {
+        setError("Network error. Please check your internet connection.");
+      } else {
+        setError(err.message || "Failed to load dashboard data");
+      }
     } finally {
       setLoading(false);
     }
@@ -188,6 +358,63 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Record Completion Status */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-lg font-bold text-[var(--navy)] flex items-center gap-2">
+            <CheckSquare size={20} className="text-[var(--teal)]" />
+            Record Completion Status
+          </h3>
+          <p className="text-[11px] text-slate-400 font-medium">
+            Shows what information is missing across active records
+          </p>
+        </div>
+
+        {completionLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[1,2,3].map(i => (
+              <div key={i} className="bg-white rounded-[20px] p-6 border border-slate-100 shadow-sm animate-pulse">
+                <div className="h-4 bg-slate-100 rounded w-2/3 mb-4" />
+                <div className="h-8 bg-slate-100 rounded w-1/3 mb-4" />
+                <div className="h-2 bg-slate-100 rounded w-full mb-6" />
+                <div className="space-y-2">
+                  <div className="h-3 bg-slate-100 rounded w-3/4" />
+                  <div className="h-3 bg-slate-100 rounded w-2/3" />
+                  <div className="h-3 bg-slate-100 rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : completionData ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <CompletionCard
+              title="Under Approval"
+              total={completionData.approval.total}
+              avgCompletion={completionData.approval.avgCompletion}
+              missing={completionData.approval.missing}
+              color="purple"
+              onClick={() => navigate('/approval')}
+            />
+            <CompletionCard
+              title="Tender"
+              total={completionData.tender.total}
+              avgCompletion={completionData.tender.avgCompletion}
+              missing={completionData.tender.missing}
+              color="sky"
+              onClick={() => navigate('/tender')}
+            />
+            <CompletionCard
+              title="Awarded Works"
+              total={completionData.awarded.total}
+              avgCompletion={completionData.awarded.avgCompletion}
+              missing={completionData.awarded.missing}
+              color="teal"
+              onClick={() => navigate('/awarded')}
+            />
+          </div>
+        ) : null}
+      </div>
+
       {/* Bottom Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* BG Expiry Alerts */}
@@ -282,6 +509,98 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CompletionCard({ 
+  title, total, avgCompletion, missing, color, onClick 
+}: {
+  title: string;
+  total: number;
+  avgCompletion: number;
+  missing: string[];
+  color: string;
+  onClick: () => void;
+}) {
+  const barColor = avgCompletion >= 80 
+    ? '#00C9A7' 
+    : avgCompletion >= 40 
+    ? '#F5A623' 
+    : '#E8445A';
+
+  const bgColors: Record<string, string> = {
+    purple: 'bg-purple-50 border-purple-100 text-purple-700',
+    sky: 'bg-sky-50 border-sky-100 text-sky-700',
+    teal: 'bg-teal-50 border-teal-100 text-teal-700',
+  };
+
+  return (
+    <div 
+      onClick={onClick}
+      className="bg-white rounded-[20px] p-6 border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer group"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="text-sm font-bold text-[var(--navy)]">{title}</h4>
+          <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+            {total} active records
+          </p>
+        </div>
+        <div className={cn(
+          "px-3 py-1.5 rounded-xl text-[11px] font-bold border",
+          bgColors[color]
+        )}>
+          {avgCompletion}% avg
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Average Completion
+          </span>
+          <span className="text-[11px] font-bold" style={{ color: barColor }}>
+            {avgCompletion >= 80 ? 'Good' : avgCompletion >= 40 ? 'Needs Attention' : 'Incomplete'}
+          </span>
+        </div>
+        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${avgCompletion}%`, backgroundColor: barColor }}
+          />
+        </div>
+      </div>
+
+      {/* Missing Fields */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+          Most Common Missing Fields
+        </p>
+        {missing.length > 0 ? missing.map((field, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 shrink-0" />
+            <span className="text-[11px] text-slate-500 font-medium leading-tight">
+              {field}
+            </span>
+          </div>
+        )) : (
+          <div className="flex items-center gap-2 text-teal-600">
+            <CheckCircle2 size={14} />
+            <span className="text-[11px] font-bold">All records complete</span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="mt-5 pt-4 border-t border-slate-50 flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+          Click to open module
+        </span>
+        <ArrowRight size={14} className="text-slate-300 group-hover:text-[var(--teal)] group-hover:translate-x-1 transition-all" />
       </div>
     </div>
   );

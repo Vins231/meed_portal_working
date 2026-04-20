@@ -11,6 +11,8 @@ interface TopbarProps {
   onOpenAlerts: () => void;
   streak: number;
   sidebarCollapsed: boolean;
+  alertCount?: number;
+  hasCritical?: boolean;
 }
 
 export default function Topbar({ 
@@ -20,7 +22,9 @@ export default function Topbar({
   onOpenSearch,
   onOpenAlerts,
   streak,
-  sidebarCollapsed
+  sidebarCollapsed,
+  alertCount = 0,
+  hasCritical = false
 }: TopbarProps) {
   const [time, setTime] = useState(new Date());
 
@@ -86,7 +90,14 @@ export default function Topbar({
           className="w-10 h-10 rounded-xl border border-slate-200 bg-white grid place-items-center text-slate-500 transition-all hover:border-[#00C9A7] hover:text-[#00C9A7] hover:bg-[#00C9A7]/5 relative group"
         >
           <Bell size={18} className="group-hover:rotate-12 transition-transform" />
-          <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[#E8445A] border-2 border-white" />
+          {alertCount > 0 && (
+            <div className={cn(
+              "absolute -top-1 -right-1 min-w-[20px] h-[20px] rounded-full border-2 border-white flex items-center justify-center text-[10px] font-black text-white px-1 shadow-lg animate-in zoom-in duration-300",
+              hasCritical ? "bg-[#E8445A] animate-pulse" : "bg-amber-500"
+            )}>
+              {alertCount}
+            </div>
+          )}
         </button>
 
         {/* Refresh */}
