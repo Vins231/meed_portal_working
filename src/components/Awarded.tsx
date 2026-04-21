@@ -842,25 +842,19 @@ export default function Awarded() {
             </div>
 
             {/* Financial Summary Bar */}
-            <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 overflow-x-auto scrollbar-hide">
-              <div className="flex items-center gap-0 min-w-max">
+            <div className="bg-slate-50 border-b border-slate-100 px-4 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-y-1">
                 <FinStat label="Awarded" value={editForm.awarded_cost} color="text-[var(--navy)]" />
-                <FinDivider />
                 <FinStat label="Extra / Excess" value={editForm.extra_amount || 0} color="text-amber-600" />
-                <FinDivider />
                 <FinStat 
                   label="Revised Contract" 
                   value={(Number(editForm.awarded_cost) || 0) + (Number(editForm.extra_amount) || 0)} 
                   color="text-[var(--navy)]"
                   bold
                 />
-                <FinDivider />
                 <FinStat label="Negotiated" value={editForm.negotiated_amount || 0} color="text-purple-600" />
-                <FinDivider />
                 <FinStat label="Bills Submitted" value={editForm.total_bills_value || 0} color="text-sky-600" />
-                <FinDivider />
                 <FinStat label="Released" value={editForm.payment_released || 0} color="text-[var(--teal)]" />
-                <FinDivider />
                 <FinStat label="Pending" value={editForm.payment_pending || 0} color="text-rose-600" bold />
               </div>
             </div>
@@ -1610,7 +1604,7 @@ function FinStat({ label, value, color, bold }: {
   };
   
   return (
-    <div className="flex flex-col items-center px-5 py-1 min-w-[100px]">
+    <div className="flex flex-col items-center px-3 py-1 min-w-[80px] flex-1">
       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap mb-1">
         {label}
       </span>
@@ -1622,11 +1616,5 @@ function FinStat({ label, value, color, bold }: {
         {fmtCurrency(Number(value) || 0)}
       </span>
     </div>
-  );
-}
-
-function FinDivider() {
-  return (
-    <div className="w-px h-8 bg-slate-200 shrink-0" />
   );
 }

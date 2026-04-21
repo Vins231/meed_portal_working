@@ -1081,41 +1081,24 @@ export default function Tender() {
               </button>
             </div>
 
-            {/* Sub-Header / Status Bar */}
-            <div className="px-6 py-3 bg-white border-b border-slate-50 flex items-center justify-between flex-wrap gap-y-4">
-              <div className="flex gap-6">
+            {/* Info Strip */}
+            <div className="px-6 py-2 bg-[var(--navy)] flex items-center gap-6 flex-wrap shrink-0">
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">Division</span>
-                  <span className="text-xs font-semibold text-slate-700">{editForm.division}</span>
+                  <span className="text-[9px] font-bold text-white/50 uppercase">Division</span>
+                  <span className="text-xs font-bold text-white">{editForm.division}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">Authority</span>
-                  <span className="text-xs font-semibold text-slate-700">{editForm.competent_authority}</span>
+                  <span className="text-[9px] font-bold text-white/50 uppercase">Authority</span>
+                  <span className="text-xs font-bold text-white">{editForm.competent_authority}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase">Est. Cost</span>
-                  <span className="text-xs font-bold text-[var(--navy)]">{fmtCurrency(editForm.estimated_cost || 0)}</span>
+                  <span className="text-[9px] font-bold text-white/50 uppercase">Est. Cost</span>
+                  <span className="text-xs font-bold text-white">{fmtCurrency(editForm.estimated_cost || 0)}</span>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                {lastSaved && (
-                  <span className="text-[10px] text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded-md">
-                    Last saved: {lastSaved}
-                  </span>
-                )}
-                <button 
-                  onClick={handleTabSave}
-                  disabled={saving}
-                  className="px-4 py-2 bg-[var(--navy)] text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-all flex items-center gap-2 disabled:opacity-50"
-                >
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  Save Tab
-                </button>
-              </div>
             </div>
 
             {/* Tab Navigation */}
-            <div className="flex border-b border-slate-100 bg-white overflow-x-auto scrollbar-hide">
+            <div className="flex border-b border-slate-100 bg-white shrink-0">
               {TENDER_TABS.map((tab, i) => (
                 <button
                   key={tab.id}
@@ -1124,7 +1107,7 @@ export default function Tender() {
                     setActiveTab(i);
                   }}
                   className={cn(
-                    "flex-1 flex flex-col items-center gap-1 py-3 px-2 text-[10px] font-bold uppercase tracking-wider transition-all relative whitespace-nowrap min-w-0",
+                    "flex-1 flex flex-col items-center gap-1 py-3 px-2 text-[10px] font-bold uppercase tracking-wider transition-all relative min-w-0",
                     activeTab === i
                       ? "text-[var(--teal)]"
                       : "text-slate-400 hover:text-slate-600"
@@ -2016,54 +1999,39 @@ export default function Tender() {
                     </div>
                   </div>
                 )}
-
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="px-8 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-4">
-                <div className="flex -space-x-2">
-                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 0 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
-                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 1 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
-                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 2 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
-                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 3 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
-                  <div className={cn("w-3 h-3 rounded-full border-2 border-white", activeTab >= 4 ? "bg-[var(--teal)]" : "bg-slate-300")}></div>
-                </div>
-                <span className="text-[10px] font-bold text-slate-400">TAB {activeTab + 1} OF 5</span>
+            <div className="px-6 py-3 border-t border-slate-100 bg-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                {lastSaved && (
+                  <span className="text-[10px] text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded-md">
+                    ✓ Saved {lastSaved}
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-400 italic font-medium">
+                  Tab {activeTab + 1} of 5
+                </span>
               </div>
-              <div className="flex gap-4">
-                {activeTab > 0 && (
-                  <button 
-                    onClick={() => {
-                      playSound('tick');
-                      setActiveTab(activeTab - 1);
-                    }} 
-                    className="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all uppercase tracking-widest"
-                  >
-                    Previous
-                  </button>
-                )}
-                {activeTab < 4 ? (
-                  <button 
-                    onClick={() => {
-                       handleTabSave();
-                       playSound('tick');
-                     setActiveTab(activeTab + 1);
-                    }}
-                    disabled={saving}
-                    className="px-6 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-black transition-all uppercase tracking-widest"
-                  >
-                    Save & Next
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => setShowEditModal(null)}
-                    className="px-6 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all uppercase tracking-widest shadow-lg shadow-emerald-100"
-                  >
-                    Finish
-                  </button>
-                )}
+              
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowEditModal(null)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleTabSave}
+                  disabled={saving}
+                  className="px-5 py-2 bg-[var(--teal)] text-white rounded-xl text-sm font-bold hover:bg-[var(--teal2)] transition-all flex items-center gap-2 disabled:opacity-50 shadow-sm"
+                >
+                  {saving 
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <Save size={14} />}
+                  Save Tab
+                </button>
               </div>
             </div>
           </div>

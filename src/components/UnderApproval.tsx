@@ -916,8 +916,8 @@ export default function UnderApproval() {
               </button>
             </div>
 
-            {/* Progress Bar */}
-            <div className="px-10 pt-8">
+            {/* Step Indicator */}
+            <div className="px-8 py-4 border-b border-slate-100 bg-white">
               <div className="relative h-1 bg-slate-100 rounded-full overflow-hidden">
                 <div 
                   className="absolute top-0 left-0 h-full bg-[#00C9A7] transition-all duration-500"
@@ -948,7 +948,7 @@ export default function UnderApproval() {
               </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-10">
+            <div className="flex-1 overflow-y-auto p-8">
               {currentStep === 1 && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
