@@ -332,6 +332,7 @@ export default function Planning({ user }: PlanningProps) {
         setSuccessMessage("New work initiated successfully");
       }
       setShowModal(false);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
@@ -353,6 +354,7 @@ export default function Planning({ user }: PlanningProps) {
         setSuccessMessage(`"${showConfirm.record.name_of_work}" has been archived.`);
       }
       setShowConfirm(null);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
@@ -475,6 +477,7 @@ export default function Planning({ user }: PlanningProps) {
               onClick={() => {
                 setSelectedCols(ALL_COLUMNS.map(c => c.key));
                 setShowExportModal(true);
+                window.dispatchEvent(new Event('modal-open'));
               }}
               className="flex items-center gap-2 px-3 py-2 bg-[#0B1F3A] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[#1a2f4d] transition-all"
               title="Export Data"
@@ -484,7 +487,10 @@ export default function Planning({ user }: PlanningProps) {
             </button>
 
             <button 
-              onClick={() => handleOpenModal()}
+              onClick={() => {
+                handleOpenModal();
+                window.dispatchEvent(new Event('modal-open'));
+              }}
               className="flex items-center gap-2 px-4 py-2 bg-[var(--teal)] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[var(--teal2)] transition-all shadow-sm hover:shadow-md"
             >
               <Plus size={16} />
@@ -502,6 +508,7 @@ export default function Planning({ user }: PlanningProps) {
                 <button 
                   onClick={() => {
                     setShowExportModal(false);
+                    window.dispatchEvent(new Event('modal-close'));
                     setExportFilters({ division: '', section: '', status: '', dateFrom: '', dateTo: '' });
                     setPreviewCount(null);
                     setPreviewed(false);
@@ -804,7 +811,10 @@ export default function Planning({ user }: PlanningProps) {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h3 className="font-bold text-slate-800 text-lg">Work Plan Details</h3>
-                <button onClick={() => setViewingRecord(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <button onClick={() => {
+                  setViewingRecord(null);
+                  window.dispatchEvent(new Event('modal-close'));
+                }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                   <X size={18} className="text-slate-400" />
                 </button>
               </div>
@@ -872,7 +882,10 @@ export default function Planning({ user }: PlanningProps) {
                   Print Record
                 </button>
                 <button 
-                  onClick={() => setViewingRecord(null)}
+                  onClick={() => {
+                    setViewingRecord(null);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }}
                   className="px-6 py-2.5 bg-[var(--navy)] text-white rounded-xl font-bold text-sm hover:bg-[var(--navy2)] transition-all shadow-md"
                 >
                   Close Detail View
@@ -905,7 +918,10 @@ export default function Planning({ user }: PlanningProps) {
                 </p>
                 <div className="flex gap-4">
                   <button 
-                    onClick={() => setShowConfirm(null)}
+                    onClick={() => {
+                      setShowConfirm(null);
+                      window.dispatchEvent(new Event('modal-close'));
+                    }}
                     className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all"
                   >
                     Cancel
@@ -979,7 +995,10 @@ export default function Planning({ user }: PlanningProps) {
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button 
-                        onClick={() => setViewingRecord(r)}
+                        onClick={() => {
+                          setViewingRecord(r);
+                          window.dispatchEvent(new Event('modal-open'));
+                        }}
                         className="p-2 text-slate-400 hover:text-[var(--navy)] hover:bg-slate-100 rounded-lg transition-all"
                         title="View Details"
                       >
@@ -989,7 +1008,10 @@ export default function Planning({ user }: PlanningProps) {
                       {r.status !== 'Submitted' && r.status !== 'Deleted' ? (
                         <>
                           <button 
-                            onClick={() => handleOpenModal(r)}
+                            onClick={() => {
+                              handleOpenModal(r);
+                              window.dispatchEvent(new Event('modal-open'));
+                            }}
                             className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
                             title="Edit Record"
                           >
@@ -997,7 +1019,10 @@ export default function Planning({ user }: PlanningProps) {
                           </button>
                           
                           <button 
-                            onClick={() => setShowConfirm({ record: r, type: 'delete' })}
+                            onClick={() => {
+                              setShowConfirm({ record: r, type: 'delete' });
+                              window.dispatchEvent(new Event('modal-open'));
+                            }}
                             className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
                             title="Archive Record"
                           >
@@ -1005,7 +1030,10 @@ export default function Planning({ user }: PlanningProps) {
                           </button>
 
                           <button 
-                            onClick={() => setShowConfirm({ record: r, type: 'submit' })}
+                            onClick={() => {
+                              setShowConfirm({ record: r, type: 'submit' });
+                              window.dispatchEvent(new Event('modal-open'));
+                            }}
                             className={cn(
                               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all",
                               r.status === 'Ready to Submit' 

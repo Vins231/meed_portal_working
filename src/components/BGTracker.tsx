@@ -60,6 +60,7 @@ export default function BGTracker({ user }: BGTrackerProps) {
       remarks: ''
     });
     setShowModal(true);
+    window.dispatchEvent(new Event('modal-open'));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -74,6 +75,7 @@ export default function BGTracker({ user }: BGTrackerProps) {
         await api.createBGRecord(editingRecord, user);
       }
       setShowModal(false);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
     } catch (err: any) {
       alert(err.message || "Failed to save BG record");
@@ -89,6 +91,7 @@ export default function BGTracker({ user }: BGTrackerProps) {
       remarks: record.remarks ? `${record.remarks}\nExtended on ${format(new Date(), 'dd/MM/yyyy')}` : `Extended on ${format(new Date(), 'dd/MM/yyyy')}`
     });
     setShowModal(true);
+    window.dispatchEvent(new Event('modal-open'));
   };
 
   const handleRelease = async (record: BGRecord) => {
@@ -288,7 +291,10 @@ export default function BGTracker({ user }: BGTrackerProps) {
                 <p className="text-xs text-[var(--muted)] mt-0.5">Enter the details of the bank guarantee document</p>
               </div>
               <button 
-                onClick={() => setShowModal(false)}
+                onClick={() => {
+                  setShowModal(false);
+                  window.dispatchEvent(new Event('modal-close'));
+                }}
                 className="p-2 hover:bg-white rounded-full text-slate-400 hover:text-[var(--rose)] transition-all shadow-sm hover:shadow-md"
               >
                 <X size={20} />
@@ -383,7 +389,10 @@ export default function BGTracker({ user }: BGTrackerProps) {
               <div className="flex items-center justify-end gap-3 pt-4">
                 <button 
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    setShowModal(false);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }}
                   className="px-6 py-2.5 text-[13px] font-bold text-slate-500 hover:text-[var(--navy)] transition-all"
                 >
                   Cancel

@@ -72,9 +72,18 @@ export default function Topbar({
         <Menu size={20} />
       </button>
 
-      <h1 className="font-display text-lg font-bold text-[var(--navy)] truncate tracking-tight">
-        {title}
-      </h1>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center p-0.5 border border-slate-200 shadow-sm shrink-0 overflow-hidden">
+          <img 
+            src="/src/assets/images/mumbai_port_authority_logo_1776756899329.png" 
+            alt="Logo" 
+            className="w-full h-full object-contain"
+          />
+        </div>
+        <h1 className="font-display text-lg font-bold text-[var(--navy)] truncate tracking-tight">
+          {title}
+        </h1>
+      </div>
 
       <div className="ml-auto flex items-center gap-3">
         {/* Search Trigger */}

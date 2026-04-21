@@ -55,11 +55,15 @@ export default function Login({ onLogin }: LoginProps) {
 
         <div className="relative z-10">
           <div className="flex items-center gap-4 mb-12">
-            <div className="w-12 h-12 bg-[#00C9A7] rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(0,201,167,0.4)]">
-              <Anchor size={28} className="text-[#0B1F3A]" />
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)] p-1 overflow-hidden">
+              <img 
+                src="/src/assets/images/mumbai_port_authority_logo_1776756899329.png" 
+                alt="MbPA Logo" 
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
-              <h1 className="text-2xl font-display font-bold tracking-tight">MbPA MEED Portal</h1>
+              <h1 className="text-2xl font-display font-bold tracking-tight text-white">MbPA MEED Portal</h1>
               <p className="text-xs text-[#00C9A7] font-bold uppercase tracking-[0.2em]">Mumbai Port Authority</p>
             </div>
           </div>

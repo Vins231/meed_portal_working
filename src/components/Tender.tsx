@@ -141,6 +141,7 @@ export default function Tender() {
   const openEditModal = (record: TenderRecord) => {
     setEditForm(record);
     setShowEditModal(record);
+    window.dispatchEvent(new Event('modal-open'));
     setActiveTab(0);
     fetchBidders(record.tender_id);
   };
@@ -633,6 +634,7 @@ export default function Tender() {
       toast.success('Moved to Awarded', "Tender moved to Awarded Works successfully!");
       setSuccessMessage("Tender moved to Awarded Works successfully!");
       setShowAwardConfirm(null);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
@@ -676,6 +678,7 @@ export default function Tender() {
       }]);
 
       setQuickUpdate(null);
+      window.dispatchEvent(new Event('modal-close'));
       setQuickForm({});
       fetchData();
       playSound('save');
@@ -721,6 +724,7 @@ export default function Tender() {
               onClick={() => {
                 setSelectedCols(ALL_COLUMNS.map(c => c.key));
                 setShowExportModal(true);
+                window.dispatchEvent(new Event('modal-open'));
               }}
               className="flex items-center gap-2 px-4 py-2 bg-[#0B1F3A] text-white rounded-[12px] text-[13px] font-bold hover:bg-[#1a2f4d] transition-all shadow-lg shadow-[#0B1F3A]/20"
               title="Export Data"
@@ -857,7 +861,11 @@ export default function Tender() {
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
-                          onClick={() => { setShowBidderModal(r); fetchBidders(r.tender_id); }}
+                          onClick={() => { 
+                            setShowBidderModal(r); 
+                            window.dispatchEvent(new Event('modal-open'));
+                            fetchBidders(r.tender_id); 
+                          }}
                           className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
                           title="Manage Bidders"
                         >
@@ -872,7 +880,10 @@ export default function Tender() {
                         </button>
                         {r.award_status === 'Approved' && r.current_stage !== 'Awarded' && (
                           <button 
-                            onClick={() => setShowAwardConfirm(r)}
+                            onClick={() => {
+                              setShowAwardConfirm(r);
+                              window.dispatchEvent(new Event('modal-open'));
+                            }}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-lg text-[11px] font-bold hover:bg-teal-700 shadow-sm transition-all"
                           >
                             Award <ArrowRight size={12} />
@@ -1916,7 +1927,10 @@ export default function Tender() {
                           {editForm.award_status === 'Approved' && editForm.l1_bidder_name && (
                             <div className="flex flex-col gap-2">
                               <button 
-                                onClick={() => setShowAwardConfirm(editForm as TenderRecord)}
+                                onClick={() => {
+                                  setShowAwardConfirm(editForm as TenderRecord);
+                                  window.dispatchEvent(new Event('modal-open'));
+                                }}
                                 className="px-6 py-3 bg-[var(--teal)] text-white text-[11px] font-bold uppercase tracking-widest rounded-xl hover:bg-teal-700 shadow-lg shadow-teal-200 transition-all flex items-center gap-2"
                               >
                                 Confirm Award Move
@@ -2017,7 +2031,10 @@ export default function Tender() {
               
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setShowEditModal(null)}
+                  onClick={() => {
+                    setShowEditModal(null);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }}
                   className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
                 >
                   Close
@@ -2048,7 +2065,10 @@ export default function Tender() {
                 <h3 className="font-bold text-slate-800">Bidder Management</h3>
                 <p className="text-[11px] text-slate-500 font-medium">{showBidderModal.name_of_work}</p>
               </div>
-              <button onClick={() => setShowBidderModal(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+              <button onClick={() => {
+                setShowBidderModal(null);
+                window.dispatchEvent(new Event('modal-close'));
+              }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                 <X size={18} className="text-slate-400" />
               </button>
             </div>
@@ -2425,7 +2445,10 @@ export default function Tender() {
                     </div>
                     <div className="flex gap-3">
                       <button 
-                        onClick={() => setQuickUpdate(null)}
+                        onClick={() => {
+                          setQuickUpdate(null);
+                          window.dispatchEvent(new Event('modal-close'));
+                        }}
                         className="flex-1 py-3 text-slate-400 font-bold text-sm hover:bg-slate-50 rounded-xl transition-all"
                       >
                         Cancel
@@ -2460,7 +2483,10 @@ export default function Tender() {
               </p>
               <div className="flex gap-3">
                 <button 
-                  onClick={() => setShowAwardConfirm(null)}
+                  onClick={() => {
+                    setShowAwardConfirm(null);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }}
                   className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all"
                 >
                   Cancel

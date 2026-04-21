@@ -266,6 +266,7 @@ export default function Awarded() {
 
   const fetchTimeline = async (record: any) => {
     setTimelineRecord(record);
+    window.dispatchEvent(new Event('modal-open'));
     setTimelineLoading(true);
     try {
       const [planning, approval, tender] = await Promise.all([
@@ -333,6 +334,7 @@ export default function Awarded() {
   // --- HANDLERS ---
   const handleEdit = (record: AwardedRecord) => {
     setEditingRecord(record);
+    window.dispatchEvent(new Event('modal-open'));
     setEditForm(record);
     setActiveTab(0);
   };
@@ -393,6 +395,7 @@ export default function Awarded() {
       playSound('save');
       toast.success('Saved', 'Record updated successfully');
       setEditingRecord(null);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
     } catch (err: any) {
       playSound('error');
@@ -423,6 +426,7 @@ export default function Awarded() {
       playSound('save');
       toast.success('Payment Released', `Released ${fmtCurrency(amount)}`);
       setPaymentRecord(null);
+      window.dispatchEvent(new Event('modal-close'));
       setPaymentAmount('');
       fetchData();
     } catch (err: any) {
@@ -507,6 +511,7 @@ export default function Awarded() {
               onClick={() => {
                 setSelectedCols(ALL_COLUMNS.map(c => c.key));
                 setShowExportModal(true);
+                window.dispatchEvent(new Event('modal-open'));
               }}
               className="flex items-center gap-2 px-4 py-2 bg-[#0B1F3A] text-white rounded-[12px] text-[13px] font-bold hover:bg-[#1a2f4d] transition-all shadow-lg shadow-[#0B1F3A]/20"
               title="Export Data"
@@ -631,7 +636,10 @@ export default function Awarded() {
                         <button onClick={() => handleEdit(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
                           <PenLine size={14} />
                         </button>
-                        <button onClick={() => setPaymentRecord(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                        <button onClick={() => {
+                          setPaymentRecord(r);
+                          window.dispatchEvent(new Event('modal-open'));
+                        }} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
                           <IndianRupee size={14} />
                         </button>
                         <button onClick={() => navigate('/bg')} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
@@ -826,7 +834,10 @@ export default function Awarded() {
             <div className="bg-white px-6 py-3 border-b border-slate-100">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-[var(--navy)]">Edit Awarded Work</h3>
-                <button onClick={() => setEditingRecord(null)} className="p-1.5 hover:bg-slate-100 rounded-full transition-colors">
+                <button onClick={() => {
+                  setEditingRecord(null);
+                  window.dispatchEvent(new Event('modal-close'));
+                }} className="p-1.5 hover:bg-slate-100 rounded-full transition-colors">
                   <X size={20} className="text-slate-400" />
                 </button>
               </div>
@@ -1149,7 +1160,10 @@ export default function Awarded() {
                 Last saved: {editForm.last_updated ? format(new Date(editForm.last_updated), 'dd MMM yyyy HH:mm') : 'Never'}
               </span>
               <div className="flex gap-3">
-                <button onClick={() => setEditingRecord(null)} className="px-5 py-2 text-slate-600 font-bold text-sm hover:bg-slate-100 rounded-xl transition-all">
+                <button onClick={() => {
+                  setEditingRecord(null);
+                  window.dispatchEvent(new Event('modal-close'));
+                }} className="px-5 py-2 text-slate-600 font-bold text-sm hover:bg-slate-100 rounded-xl transition-all">
                   Cancel
                 </button>
                 <button 
@@ -1172,7 +1186,10 @@ export default function Awarded() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-[var(--navy)]">Release Payment</h3>
-              <button onClick={() => setPaymentRecord(null)} className="p-1 hover:bg-slate-100 rounded-full">
+              <button onClick={() => {
+                setPaymentRecord(null);
+                window.dispatchEvent(new Event('modal-close'));
+              }} className="p-1 hover:bg-slate-100 rounded-full">
                 <X size={18} className="text-slate-400" />
               </button>
             </div>
@@ -1209,7 +1226,10 @@ export default function Awarded() {
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-              <button onClick={() => setPaymentRecord(null)} className="flex-1 py-2 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-xl transition-all">
+              <button onClick={() => {
+                setPaymentRecord(null);
+                window.dispatchEvent(new Event('modal-close'));
+              }} className="flex-1 py-2 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-xl transition-all">
                 Cancel
               </button>
               <button 

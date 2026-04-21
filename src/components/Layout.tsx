@@ -43,6 +43,32 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
+    const handleModalOpen = () => {
+      // Only auto-collapse on md+ screens
+      // On mobile sidebar is already hidden
+      if (window.innerWidth >= 768) {
+        setSidebarCollapsed(true);
+      }
+    };
+
+    const handleModalClose = () => {
+      // Restore to user's saved preference on close
+      const saved = localStorage.getItem('sidebar_collapsed');
+      if (window.innerWidth >= 768) {
+        setSidebarCollapsed(saved === 'true');
+      }
+    };
+
+    window.addEventListener('modal-open', handleModalOpen);
+    window.addEventListener('modal-close', handleModalClose);
+
+    return () => {
+      window.removeEventListener('modal-open', handleModalOpen);
+      window.removeEventListener('modal-close', handleModalClose);
+    };
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem('meed_theme');
     if (saved && saved !== 'default') {
       document.documentElement.setAttribute('data-theme', saved);

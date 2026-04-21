@@ -396,6 +396,7 @@ export default function UnderApproval() {
       toast.success('Saved', "Record updated successfully");
       setSuccessMessage("Record updated successfully");
       setShowEditModal(null);
+      window.dispatchEvent(new Event('modal-close'));
       setCurrentStep(1);
       setSelectedFile(null);
       fetchData();
@@ -466,6 +467,7 @@ export default function UnderApproval() {
       toast.success('Moved to Tender', "Work moved to Tender stage successfully!");
       setSuccessMessage("Work moved to Tender stage successfully!");
       setShowMoveConfirm(null);
+      window.dispatchEvent(new Event('modal-close'));
       fetchData();
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
@@ -509,6 +511,7 @@ export default function UnderApproval() {
       }]);
 
       setQuickUpdate(null);
+      window.dispatchEvent(new Event('modal-close'));
       setQuickForm({});
       fetchData();
       playSound('save');
@@ -595,6 +598,7 @@ export default function UnderApproval() {
               onClick={() => {
                 setSelectedCols(ALL_COLUMNS.map(c => c.key));
                 setShowExportModal(true);
+                window.dispatchEvent(new Event('modal-open'));
               }}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-bold hover:bg-[#1a2f4d] transition-all shadow-lg shadow-[#0B1F3A]/20"
               title="Export Data"
@@ -668,6 +672,7 @@ export default function UnderApproval() {
                       )}
                       onClick={() => {
                         setQuickUpdate({ record: r, type: 'approval' });
+                        window.dispatchEvent(new Event('modal-open'));
                         setQuickForm({});
                       }}
                       title="Click to quick update"
@@ -689,6 +694,7 @@ export default function UnderApproval() {
                       <button 
                         onClick={() => {
                           setShowEditModal(r);
+                          window.dispatchEvent(new Event('modal-open'));
                           setCurrentStep(1);
                         }}
                         className="p-2.5 text-slate-400 hover:text-[#00C9A7] hover:bg-[#00C9A7]/10 rounded-xl transition-all" 
@@ -698,7 +704,10 @@ export default function UnderApproval() {
                       </button>
                       {r.current_stage === 'Ready to Tender' && (
                         <button 
-                          onClick={() => setShowMoveConfirm(r)}
+                          onClick={() => {
+                            setShowMoveConfirm(r);
+                            window.dispatchEvent(new Event('modal-open'));
+                          }}
                           className="flex items-center gap-2 px-4 py-2 bg-[#00C9A7] text-[#0B1F3A] rounded-xl text-[11px] font-bold hover:bg-[#00C9A7]/90 shadow-lg shadow-[#00C9A7]/20 transition-all animate-pulse"
                         >
                           → Tender
@@ -733,6 +742,7 @@ export default function UnderApproval() {
                 <button 
                   onClick={() => {
                     setShowExportModal(false);
+                    window.dispatchEvent(new Event('modal-close'));
                     setExportFilters({ division: '', section: '', status: '', dateFrom: '', dateTo: '' });
                     setPreviewCount(null);
                     setPreviewed(false);
@@ -908,6 +918,7 @@ export default function UnderApproval() {
               <button 
                 onClick={() => {
                   setShowEditModal(null);
+                  window.dispatchEvent(new Event('modal-close'));
                   setSelectedFile(null);
                 }} 
                 className="w-10 h-10 rounded-full hover:bg-slate-200/50 flex items-center justify-center text-slate-400 transition-colors"
@@ -1151,7 +1162,12 @@ export default function UnderApproval() {
                 type="button"
                 onClick={() => {
                   playSound('tick');
-                  currentStep > 1 ? setCurrentStep(prev => (prev - 1) as any) : setShowEditModal(null);
+                  if (currentStep > 1) {
+                    setCurrentStep(prev => (prev - 1) as any);
+                  } else {
+                    setShowEditModal(null);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }
                 }}
                 className="flex items-center gap-2 px-6 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-[#0B1F3A] transition-colors"
               >
@@ -1211,7 +1227,10 @@ export default function UnderApproval() {
                   {submitting ? <Loader2 size={18} className="animate-spin" /> : 'Yes, Move to Tender'}
                 </button>
                 <button 
-                  onClick={() => setShowMoveConfirm(null)}
+                  onClick={() => {
+                    setShowMoveConfirm(null);
+                    window.dispatchEvent(new Event('modal-close'));
+                  }}
                   className="w-full py-4 text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-[#0B1F3A] transition-colors"
                 >
                   Cancel

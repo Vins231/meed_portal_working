@@ -86,8 +86,12 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
           "p-6 flex items-center border-b border-white/5 shrink-0",
           collapsed ? "justify-center" : "gap-3"
         )}>
-          <div className="w-10 h-10 rounded-xl bg-[var(--teal)] grid place-items-center text-[var(--navy)] shrink-0 shadow-[0_4px_12px_rgba(0,201,167,0.3)]">
-            <Anchor size={20} />
+          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1 shrink-0 shadow-[0_4px_12px_rgba(0,0,0,0.2)] overflow-hidden">
+            <img 
+              src="/src/assets/images/mumbai_port_authority_logo_1776756899329.png" 
+              alt="MbPA Logo" 
+              className="w-full h-full object-contain"
+            />
           </div>
           {!collapsed && (
             <div className="animate-in fade-in duration-300">
