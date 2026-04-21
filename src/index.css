@@ -5,6 +5,7 @@
   --font-display: "Syne", sans-serif;
 }
 
+/* ── THEME 1: Navy Command (Default) ── */
 :root {
   --navy:     #0B1F3A;
   --navy2:    #122b50;
@@ -22,11 +23,16 @@
   --purple:   #8B5CF6;
   --ink:      #1C2B3A;
   --paper:    #F0F4F8;
-  --card:     #FFFFFF;
   --border:   #E2E8F0;
   --border2:  #CBD5E1;
   --muted:    #8A99B0;
   --muted2:   #64748B;
+  --card-bg:  #FFFFFF;
+  --sidebar-bg: var(--navy);
+  --topbar-bg: rgba(255,255,255,0.85);
+  --glass: none;
+  --glass-border: var(--border);
+  --sidebar-gradient: none;
   --shadow-sm: 0 2px 8px rgba(11,31,58,.08);
   --shadow:    0 4px 24px rgba(11,31,58,.10);
   --shadow-lg: 0 8px 40px rgba(11,31,58,.15);
@@ -36,6 +42,164 @@
   --radius-xl: 24px;
   --sidebar:  268px;
   --topbar:   64px;
+}
+
+/* ── THEME 2: Midnight Carbon ── */
+[data-theme="midnight"] {
+  --navy:     #E2E8F0;
+  --navy2:    #CBD5E1;
+  --navy3:    #94A3B8;
+  --teal:     #E94560;
+  --teal2:    #c73348;
+  --teal3:    #FF6B6B;
+  --amber:    #FFD700;
+  --amber2:   #FFC200;
+  --rose:     #FF4757;
+  --rose2:    #cc2233;
+  --sky:      #70A1FF;
+  --sky2:     #5a8eff;
+  --green:    #2ED573;
+  --purple:   #A78BFA;
+  --ink:      #E2E8F0;
+  --paper:    #0F0F1A;
+  --border:   rgba(233,69,96,0.15);
+  --border2:  rgba(233,69,96,0.25);
+  --muted:    #64748B;
+  --muted2:   #94A3B8;
+  --card-bg:  #1A1A2E;
+  --sidebar-bg: #0F0F1A;
+  --topbar-bg: rgba(15,15,26,0.90);
+  --glass: rgba(255,255,255,0.04);
+  --glass-border: rgba(233,69,96,0.20);
+  --sidebar-gradient: linear-gradient(
+    180deg,
+    #0F0F1A 0%,
+    #1A1A2E 40%,
+    #0F3460 100%
+  );
+}
+
+/* ── THEME 3: Titanium Pro ── */
+[data-theme="titanium"] {
+  --navy:     #1A1A2A;
+  --navy2:    #2D2D3F;
+  --navy3:    #3D3D50;
+  --teal:     #6C63FF;
+  --teal2:    #5a52e0;
+  --teal3:    #8B85FF;
+  --amber:    #FF6B6B;
+  --amber2:   #e05555;
+  --rose:     #FF4757;
+  --rose2:    #cc2233;
+  --sky:      #45B7D1;
+  --sky2:     #339ab5;
+  --green:    #96CEB4;
+  --purple:   #DDA0DD;
+  --ink:      #1A1A2A;
+  --paper:    #F5F5F7;
+  --border:   #E8E8EC;
+  --border2:  #D0D0D8;
+  --muted:    #9090A0;
+  --muted2:   #707080;
+  --card-bg:  #FFFFFF;
+  --sidebar-bg: #1A1A2A;
+  --topbar-bg: rgba(245,245,247,0.92);
+  --glass: none;
+  --glass-border: var(--border);
+  --sidebar-gradient: linear-gradient(
+    180deg,
+    #1A1A2A 0%,
+    #2D2D3F 50%,
+    #1A1A2A 100%
+  );
+}
+
+/* ── GLOBAL THEME TRANSITIONS ── */
+*, *::before, *::after {
+  transition: background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.2s ease;
+}
+
+/* ── BODY BACKGROUND ── */
+body {
+  background-color: var(--paper) !important;
+  color: var(--ink) !important;
+}
+
+/* ── CARD BACKGROUND ── */
+.bg-white {
+  background-color: var(--card-bg) !important;
+}
+
+/* ── GLASSMORPHISM (midnight theme only) ── */
+[data-theme="midnight"] .bg-white,
+[data-theme="midnight"] .card {
+  background: var(--glass) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: var(--glass-border) !important;
+  box-shadow: 0 4px 24px rgba(233,69,96,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+
+/* ── TOPBAR BACKGROUND ── */
+header {
+  background-color: var(--topbar-bg) !important;
+}
+
+/* ── GLOW EFFECTS for midnight ── */
+[data-theme="midnight"] .shadow-md {
+  box-shadow: 0 0 20px rgba(233,69,96,0.15) !important;
+}
+
+[data-theme="midnight"] button:hover {
+  box-shadow: 0 0 12px rgba(233,69,96,0.2);
+}
+
+/* ── TITANIUM sharp corners ── */
+[data-theme="titanium"] .rounded-\[20px\],
+[data-theme="titanium"] .rounded-\[16px\],
+[data-theme="titanium"] .rounded-2xl {
+  border-radius: 8px !important;
+}
+
+/* ── TABLE BACKGROUNDS ── */
+thead tr {
+  background-color: var(--paper) !important;
+}
+
+/* ── INPUT FIELDS ── */
+input, select, textarea {
+  background-color: var(--card-bg) !important;
+  color: var(--ink) !important;
+  border-color: var(--border) !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--muted) !important;
+}
+
+/* ── MIDNIGHT ANIMATED GRADIENT KEYFRAMES ── */
+@keyframes gradientShift {
+  0%   { background-position: 0% 0%; }
+  50%  { background-position: 0% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
+/* ── MIDNIGHT CARD GLOW PULSE ── */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(233,69,96,0.1); }
+  50%       { box-shadow: 0 0 25px rgba(233,69,96,0.2); }
+}
+
+[data-theme="midnight"] .bg-white {
+  animation: glowPulse 4s ease-in-out infinite;
+}
+
+@keyframes toastShrink {
+  from { width: 100%; }
+  to   { width: 0%; }
 }
 
 @layer base {

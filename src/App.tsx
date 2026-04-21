@@ -18,6 +18,7 @@ import BGTracker from './components/BGTracker';
 import Reports from './components/Reports';
 import ActivityLog from './components/ActivityLog';
 import Admin from './components/Admin';
+import Calendar from './components/Calendar';
 import { supabase } from './lib/supabase';
 import { api } from './services/api';
 
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/bg" element={<BGTracker user={user} />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/activity" element={<ActivityLog />} />
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="/admin" element={<Admin user={user} />} />
           <Route path="/profile" element={<Profile user={user} />} />
         </Route>

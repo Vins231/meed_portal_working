@@ -4,13 +4,15 @@ import {
   IndianRupee, Tag, CheckCircle2, Clock,
   AlertCircle, TrendingUp, X, ChevronRight, ChevronLeft, Save, Loader2,
   Shield, PenLine, Plus, Upload, ExternalLink, Trash2,
-  FileDown, Printer, Download
+  FileDown, Printer, Download, GitBranch
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { AwardedRecord, User, MasterData } from '../types';
 import { format, addDays, addMonths, differenceInDays } from 'date-fns';
 import { api } from '../services/api';
 import { supabase } from '../lib/supabase';
+import { playSound } from '../lib/sounds';
+import { toast } from '../lib/toast';
 import ErrorMessage from './ErrorMessage';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -81,11 +83,24 @@ export default function Awarded() {
   const [progressPopup, setProgressPopup] = useState<{ id: string, value: number, x: number, y: number } | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
 
+  const [timelineRecord, setTimelineRecord] = useState<any | null>(null);
+  const [timelineData, setTimelineData] = useState<{
+    planning: any | null;
+    approval: any | null;
+    tender: any | null;
+    awarded: any | null;
+  } | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+
   const fetchData = () => {
     setLoading(true);
     api.getAwardedRecords()
       .then(setRecords)
-      .catch(err => setError(err.message || "Failed to load awarded records"))
+      .catch(err => {
+        playSound('error');
+        toast.error('Error', err.message || "Failed to load awarded records");
+        setError(err.message || "Failed to load awarded records");
+      })
       .finally(() => setLoading(false));
   };
 
@@ -249,6 +264,38 @@ export default function Awarded() {
     }
   };
 
+  const fetchTimeline = async (record: any) => {
+    setTimelineRecord(record);
+    setTimelineLoading(true);
+    try {
+      const [planning, approval, tender] = await Promise.all([
+        record.plan_id 
+          ? supabase.from('planning').select('*')
+              .eq('plan_id', record.plan_id).single()
+          : Promise.resolve({ data: null }),
+        record.approval_id
+          ? supabase.from('under_approval').select('*')
+              .eq('approval_id', record.approval_id).single()
+          : Promise.resolve({ data: null }),
+        record.tender_id
+          ? supabase.from('tender').select('*')
+              .eq('tender_id', record.tender_id).single()
+          : Promise.resolve({ data: null }),
+      ]);
+      
+      setTimelineData({
+        planning: planning.data,
+        approval: approval.data,
+        tender: tender.data,
+        awarded: record
+      });
+    } catch (err) {
+      console.error('Timeline fetch error:', err);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
   // --- AUTO CALCULATIONS ---
   const fmtCurrency = (n: number) => {
     if (!n) return 'Rs.0';
@@ -256,6 +303,8 @@ export default function Awarded() {
     if (n >= 100000) return 'Rs.' + (n / 100000).toFixed(2) + ' L';
     return 'Rs.' + n.toLocaleString('en-IN');
   };
+
+  const fmtDate = (d: string) => d ? format(new Date(d), 'dd MMM yyyy') : '-';
 
   const calcScheduled = (startDate: string, periodDays: number) => {
     if (!startDate || !periodDays) return '';
@@ -341,9 +390,13 @@ export default function Awarded() {
       
       await api.logActivity('UPDATE', 'AWARDED_WORKS', editingRecord.awarded_id, `Awarded work updated by ${currentUser.name}`, currentUser);
       
+      playSound('save');
+      toast.success('Saved', 'Record updated successfully');
       setEditingRecord(null);
       fetchData();
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSubmitting(false);
@@ -367,10 +420,14 @@ export default function Awarded() {
 
       await api.logActivity('PAYMENT_UPDATE', 'AWARDED_WORKS', paymentRecord.awarded_id, `Payment of ${fmtCurrency(amount)} released by ${currentUser.name}`, currentUser);
 
+      playSound('save');
+      toast.success('Payment Released', `Released ${fmtCurrency(amount)}`);
       setPaymentRecord(null);
       setPaymentAmount('');
       fetchData();
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSubmitting(false);
@@ -387,13 +444,13 @@ export default function Awarded() {
         last_updated: new Date().toISOString()
       });
 
-      if (val >= 100) {
-        // Celebration logic could go here
-      }
-
+      playSound('save');
+      toast.success('Progress Updated', `${val}% physical progress`);
       setProgressPopup(null);
       fetchData();
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       console.error(err);
     }
   };
@@ -416,8 +473,11 @@ export default function Awarded() {
         .getPublicUrl(filePath);
 
       updateField(field, publicUrl);
+      playSound('save');
+      toast.success('Upload Successful', 'Document attached to record');
     } catch (err: any) {
-      alert("Upload failed: " + err.message);
+      playSound('error');
+      toast.error('Upload Failed', err.message);
     }
   };
 
@@ -577,6 +637,13 @@ export default function Awarded() {
                         <button onClick={() => navigate('/bg')} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
                           <Shield size={14} />
                         </button>
+                        <button
+                          onClick={() => fetchTimeline(r)}
+                          className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                          title="View Work Timeline"
+                        >
+                          <GitBranch size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -587,32 +654,181 @@ export default function Awarded() {
         </div>
       </div>
 
+      {/* Timeline Panel */}
+      {timelineRecord && (
+        <div className="fixed inset-0 z-[90] flex">
+          {/* Backdrop */}
+          <div 
+            className="flex-1 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => { 
+              setTimelineRecord(null); 
+              setTimelineData(null); 
+            }}
+          />
+          
+          {/* Panel */}
+          <div className="w-full max-w-md bg-white h-full overflow-y-auto shadow-2xl animate-in slide-in-from-right duration-300">
+            
+            {/* Panel Header */}
+            <div className="sticky top-0 bg-[var(--navy)] px-6 py-4 z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-white text-sm">
+                    Work Timeline
+                  </h3>
+                  <p className="text-white/50 text-[11px] mt-0.5 line-clamp-1">
+                    {timelineRecord.name_of_work}
+                  </p>
+                </div>
+                <button
+                  onClick={() => { 
+                    setTimelineRecord(null); 
+                    setTimelineData(null); 
+                  }}
+                  className="p-2 hover:bg-white/10 rounded-xl transition-all"
+                >
+                  <X size={18} className="text-white/60" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Timeline Content */}
+            <div className="p-6">
+              {timelineLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+                  <Loader2 size={32} className="animate-spin text-[var(--teal)]" />
+                  <p className="text-sm font-medium">
+                    Loading timeline...
+                  </p>
+                </div>
+              ) : timelineData ? (
+                <div className="relative">
+                  {/* Vertical line */}
+                  <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-100" />
+                  
+                  <div className="space-y-0">
+                  
+                    {/* STAGE 1 — PLANNING */}
+                    <TimelineStage
+                      done={!!timelineData.planning}
+                      active={!timelineData.approval}
+                      icon="💡"
+                      title="Planning"
+                      date={timelineData.planning?.added_on}
+                      details={timelineData.planning ? [
+                        { label: 'Plan ID', value: timelineData.planning.plan_id },
+                        { label: 'Priority', value: timelineData.planning.priority },
+                        { label: 'Added by', value: timelineData.planning.added_by },
+                      ] : []}
+                      pending={!timelineData.planning}
+                    />
+                    
+                    {/* STAGE 2 — UNDER APPROVAL */}
+                    <TimelineStage
+                      done={!!timelineData.approval?.ca_date}
+                      active={!!timelineData.approval && !timelineData.tender}
+                      icon="📋"
+                      title="Under Approval"
+                      date={timelineData.approval?.added_on}
+                      details={timelineData.approval ? [
+                        { label: 'Estimate No', value: timelineData.approval.estimate_no },
+                        { label: 'Est. Cost', value: timelineData.approval.estimated_cost 
+                          ? fmtCurrency(timelineData.approval.estimated_cost) : null },
+                        { label: 'Work Type', value: timelineData.approval.work_type },
+                        { label: 'Competent Authority', value: timelineData.approval.competent_authority },
+                        { label: 'FC No', value: timelineData.approval.fc_no },
+                        { label: 'FC Date', value: timelineData.approval.fc_date 
+                          ? fmtDate(timelineData.approval.fc_date) : null },
+                        { label: 'CA Approval', value: timelineData.approval.ca_date 
+                          ? fmtDate(timelineData.approval.ca_date) : null },
+                        { label: 'Stage', value: timelineData.approval.current_stage },
+                      ] : []}
+                      pending={!timelineData.approval}
+                    />
+
+                    {/* STAGE 3 — TENDER */}
+                    <TimelineStage
+                      done={timelineData.tender?.current_stage === 'Awarded'}
+                      active={!!timelineData.tender && !timelineData.awarded?.work_order_no}
+                      icon="📄"
+                      title="Tender"
+                      date={timelineData.tender?.added_on}
+                      details={timelineData.tender ? [
+                        { label: 'Tender No', value: timelineData.tender.tender_no },
+                        { label: 'Tender Type', value: timelineData.tender.tender_type },
+                        { label: 'Float Date', value: timelineData.tender.tender_float_date 
+                          ? fmtDate(timelineData.tender.tender_float_date) : null },
+                        { label: 'Bids Received', value: timelineData.tender.no_of_bids_received 
+                          ? String(timelineData.tender.no_of_bids_received) : null },
+                        { label: 'L1 Bidder', value: timelineData.tender.l1_bidder_name },
+                        { label: 'L1 Amount', value: timelineData.tender.l1_amount 
+                          ? fmtCurrency(timelineData.tender.l1_amount) : null },
+                        { label: 'L1 %', value: timelineData.tender.l1_percentage },
+                        { label: 'Award Status', value: timelineData.tender.award_status },
+                      ] : []}
+                      pending={!timelineData.tender}
+                    />
+
+                    {/* STAGE 4 — AWARDED */}
+                    <TimelineStage
+                      done={timelineData.awarded?.overall_status === 'Completed'}
+                      active={!!timelineData.awarded?.work_order_no && timelineData.awarded?.overall_status !== 'Completed'}
+                      icon="🤝"
+                      title="Awarded"
+                      date={timelineData.awarded?.work_order_date || timelineData.awarded?.added_on}
+                      details={[
+                        { label: 'WO No', value: timelineData.awarded.work_order_no || timelineData.awarded.gem_contract_no },
+                        { label: 'WO Date', value: timelineData.awarded.work_order_date 
+                          ? fmtDate(timelineData.awarded.work_order_date) : null },
+                        { label: 'Contractor', value: timelineData.awarded.contractor_name },
+                        { label: 'Awarded Cost', value: fmtCurrency(timelineData.awarded.awarded_cost) },
+                        { label: 'Start Date', value: timelineData.awarded.start_date 
+                          ? fmtDate(timelineData.awarded.start_date) : null },
+                        { label: 'Progress', value: timelineData.awarded.physical_progress_percent 
+                          ? `${timelineData.awarded.physical_progress_percent}%` : null },
+                        { label: 'Delay', value: timelineData.awarded.delay_days 
+                          ? `${timelineData.awarded.delay_days} days` : null },
+                        { label: 'Status', value: timelineData.awarded.overall_status },
+                      ]}
+                      pending={!timelineData.awarded?.work_order_no}
+                    />
+
+                    {/* STAGE 5 — COMPLETION */}
+                    <TimelineStage
+                      done={timelineData.awarded?.overall_status === 'Completed'}
+                      active={false}
+                      icon="✅"
+                      title="Completed"
+                      date={timelineData.awarded?.actual_completion}
+                      details={timelineData.awarded?.overall_status === 'Completed' ? [
+                        { label: 'Completion Date', value: timelineData.awarded.actual_completion 
+                          ? fmtDate(timelineData.awarded.actual_completion) : null },
+                        { label: 'Payment Released', value: fmtCurrency(timelineData.awarded.payment_released) },
+                        { label: 'DLP End', value: timelineData.awarded.dlp_end_date 
+                          ? fmtDate(timelineData.awarded.dlp_end_date) : null },
+                      ] : []}
+                      pending={timelineData.awarded?.overall_status !== 'Completed'}
+                    />
+
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 5-TAB EDIT MODAL */}
       {editingRecord && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-            {/* Tabs Header */}
-            <div className="bg-white border-b border-slate-100">
-              <div className="flex items-center justify-between px-6 py-3">
+            {/* Title Bar */}
+            <div className="bg-white px-6 py-3 border-b border-slate-100">
+              <div className="flex items-center justify-between">
                 <h3 className="font-bold text-[var(--navy)]">Edit Awarded Work</h3>
                 <button onClick={() => setEditingRecord(null)} className="p-1.5 hover:bg-slate-100 rounded-full transition-colors">
                   <X size={20} className="text-slate-400" />
                 </button>
-              </div>
-              <div className="flex px-6 gap-8">
-                {['Contract', 'Progress', 'Payments', 'BG/DLP', 'Closure'].map((tab, i) => (
-                  <button 
-                    key={tab}
-                    onClick={() => setActiveTab(i)}
-                    className={cn(
-                      "pb-3 text-xs font-bold uppercase tracking-wider transition-all relative",
-                      activeTab === i ? "text-[var(--teal)]" : "text-slate-400 hover:text-slate-600"
-                    )}
-                  >
-                    {tab}
-                    {activeTab === i && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--teal)] rounded-full" />}
-                  </button>
-                ))}
               </div>
             </div>
 
@@ -623,6 +839,50 @@ export default function Awarded() {
               <span>Division: <b className="text-white">{editingRecord.division}</b></span>
               <span>Section: <b className="text-white">{editingRecord.section}</b></span>
               <span>Authority: <b className="text-white">{editingRecord.competent_authority}</b></span>
+            </div>
+
+            {/* Financial Summary Bar */}
+            <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-0 min-w-max">
+                <FinStat label="Awarded" value={editForm.awarded_cost} color="text-[var(--navy)]" />
+                <FinDivider />
+                <FinStat label="Extra / Excess" value={editForm.extra_amount || 0} color="text-amber-600" />
+                <FinDivider />
+                <FinStat 
+                  label="Revised Contract" 
+                  value={(Number(editForm.awarded_cost) || 0) + (Number(editForm.extra_amount) || 0)} 
+                  color="text-[var(--navy)]"
+                  bold
+                />
+                <FinDivider />
+                <FinStat label="Negotiated" value={editForm.negotiated_amount || 0} color="text-purple-600" />
+                <FinDivider />
+                <FinStat label="Bills Submitted" value={editForm.total_bills_value || 0} color="text-sky-600" />
+                <FinDivider />
+                <FinStat label="Released" value={editForm.payment_released || 0} color="text-[var(--teal)]" />
+                <FinDivider />
+                <FinStat label="Pending" value={editForm.payment_pending || 0} color="text-rose-600" bold />
+              </div>
+            </div>
+
+            {/* Tab Bar */}
+            <div className="bg-white border-b border-slate-100 flex px-6 gap-8">
+              {['Contract', 'Progress', 'Payments', 'BG/DLP', 'Closure'].map((tab, i) => (
+                <button 
+                  key={tab}
+                  onClick={() => {
+                    playSound('tick');
+                    setActiveTab(i);
+                  }}
+                  className={cn(
+                    "pb-3 pt-3 text-xs font-bold uppercase tracking-wider transition-all relative",
+                    activeTab === i ? "text-[var(--teal)]" : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  {tab}
+                  {activeTab === i && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--teal)] rounded-full" />}
+                </button>
+              ))}
             </div>
 
             {/* Tab Content */}
@@ -1250,5 +1510,123 @@ function FileZone({ label, url, onUpload, onClear }: { label: string, url?: stri
         </label>
       )}
     </div>
+  );
+}
+
+function TimelineStage({ done, active, icon, title, date, details, pending }: {
+  done: boolean;
+  active: boolean;
+  icon: string;
+  title: string;
+  date?: string;
+  details: { label: string; value: string | null | undefined }[];
+  pending: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  
+  return (
+    <div className="relative flex gap-4 pb-8">
+      {/* Circle indicator */}
+      <div className={cn(
+        "relative z-10 w-10 h-10 rounded-full flex items-center justify-center text-base shrink-0 border-2 transition-all",
+        done ? "bg-[var(--teal)] border-[var(--teal)] shadow-lg shadow-teal-200" :
+        active ? "bg-white border-[var(--teal)] shadow-lg shadow-teal-100" :
+        pending ? "bg-white border-slate-200" : "bg-slate-50 border-slate-200"
+      )}>
+        {done ? '✓' : icon}
+      </div>
+      
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div 
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => !pending && setOpen(!open)}
+        >
+          <div>
+            <h4 className={cn(
+              "text-sm font-bold",
+              done ? "text-[var(--teal)]" :
+              active ? "text-[var(--navy)]" :
+              "text-slate-300"
+            )}>
+              {title}
+            </h4>
+            {date && (
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                {format(new Date(date), 'dd MMM yyyy')}
+              </p>
+            )}
+          </div>
+          <div className={cn(
+            "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+            done ? "bg-teal-50 text-teal-600 border-teal-100" :
+            active ? "bg-amber-50 text-amber-600 border-amber-100" :
+            "bg-slate-50 text-slate-400 border-slate-100"
+          )}>
+            {done ? 'Done' : active ? 'Active' : 'Pending'}
+          </div>
+        </div>
+        
+        {/* Details */}
+        {open && !pending && details.length > 0 && (
+          <div className="mt-3 p-3 bg-slate-50 rounded-xl space-y-1.5">
+            {details
+              .filter(d => d.value)
+              .map(d => (
+                <div key={d.label} className="flex items-start justify-between gap-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                    {d.label}
+                  </span>
+                  <span className="text-[11px] font-bold text-[var(--navy)] text-right">
+                    {d.value}
+                  </span>
+                </div>
+              ))
+            }
+          </div>
+        )}
+        
+        {pending && (
+          <p className="text-[11px] text-slate-300 italic mt-1">
+            Not yet reached
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FinStat({ label, value, color, bold }: { 
+  label: string; 
+  value: number | string | undefined; 
+  color: string;
+  bold?: boolean;
+}) {
+  const fmtCurrency = (n: number) => {
+    if (!n || n === 0) return '—';
+    if (n >= 10000000) return '₹' + (n/10000000).toFixed(2) + ' Cr';
+    if (n >= 100000) return '₹' + (n/100000).toFixed(2) + ' L';
+    return '₹' + Number(n).toLocaleString('en-IN');
+  };
+  
+  return (
+    <div className="flex flex-col items-center px-5 py-1 min-w-[100px]">
+      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap mb-1">
+        {label}
+      </span>
+      <span className={cn(
+        "text-[13px] whitespace-nowrap",
+        bold ? "font-black" : "font-bold",
+        color
+      )}>
+        {fmtCurrency(Number(value) || 0)}
+      </span>
+    </div>
+  );
+}
+
+function FinDivider() {
+  return (
+    <div className="w-px h-8 bg-slate-200 shrink-0" />
   );
 }

@@ -3,7 +3,7 @@ import {
   Anchor, Gauge, Lightbulb, FileSignature, 
   FileText, Handshake, ShieldCheck, 
   BarChart3, History, Settings, LogOut, User as UserIcon,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react';
 import { User } from '../types';
 import { cn } from '../lib/utils';
@@ -48,6 +48,7 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
     ]},
     { section: 'Reports', items: [
       { id: 'reports', label: 'Reports', icon: BarChart3, path: '/reports' },
+      { id: 'calendar', label: 'Calendar', icon: CalendarDays, path: '/calendar' },
     ]},
     { section: 'System', items: [
       { id: 'activity', label: 'Activity Log', icon: History, path: '/activity' },
@@ -66,17 +67,26 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
         />
       )}
 
-      <aside className={cn(
-        "fixed top-0 left-0 h-screen bg-[#0B1F3A] flex flex-col z-[200] transition-all duration-[250ms] ease-in-out shadow-[4px_0_24px_rgba(0,0,0,0.2)]",
-        collapsed ? "w-16" : "w-[268px]",
-        !isOpen && "-translate-x-full md:translate-x-0"
-      )}>
+      <aside 
+        className={cn(
+          "fixed top-0 left-0 h-screen flex flex-col z-[200] transition-all duration-300 ease-in-out shadow-[4px_0_24px_rgba(0,0,0,0.2)]",
+          collapsed ? "w-16" : "w-[268px]",
+          !isOpen && "-translate-x-full md:translate-x-0"
+        )}
+        style={{
+          background: 'var(--sidebar-gradient, var(--sidebar-bg))',
+          backgroundSize: '100% 300%',
+          animation: document.documentElement.getAttribute('data-theme') === 'midnight' 
+            ? 'gradientShift 8s ease infinite' 
+            : 'none'
+        }}
+      >
         {/* Brand */}
         <div className={cn(
           "p-6 flex items-center border-b border-white/5 shrink-0",
           collapsed ? "justify-center" : "gap-3"
         )}>
-          <div className="w-10 h-10 rounded-xl bg-[#00C9A7] grid place-items-center text-[#0B1F3A] shrink-0 shadow-[0_4px_12px_rgba(0,201,167,0.3)]">
+          <div className="w-10 h-10 rounded-xl bg-[var(--teal)] grid place-items-center text-[var(--navy)] shrink-0 shadow-[0_4px_12px_rgba(0,201,167,0.3)]">
             <Anchor size={20} />
           </div>
           {!collapsed && (
@@ -113,28 +123,28 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
                         "flex items-center py-2.5 text-[13.5px] font-medium transition-all relative group",
                         collapsed ? "justify-center px-0" : "px-6 gap-3",
                         isActive 
-                          ? "text-white bg-[rgba(0,201,167,0.15)] before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-[#00C9A7]" 
+                          ? "text-white bg-[var(--teal)]/15 before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:bg-[var(--teal)]" 
                           : "text-white/50 hover:text-white hover:bg-white/5"
                       )}
                     >
                       {({ isActive }) => (
                         <>
-                          <item.icon size={16} className={cn("shrink-0 transition-colors", isActive ? "text-[#00C9A7]" : "text-white/30 group-hover:text-white/60")} />
+                          <item.icon size={16} className={cn("shrink-0 transition-colors", isActive ? "text-[var(--teal)]" : "text-white/30 group-hover:text-white/60")} />
                           {!collapsed && <span className="animate-in fade-in duration-300">{item.label}</span>}
                           {item.badge && (
                             collapsed ? (
                               <span className={cn(
                                 "absolute top-2 right-2 w-2 h-2 rounded-full",
-                                item.badgeColor === 'amber' ? "bg-[#F5A623]" : 
-                                item.badgeColor === 'rose' ? "bg-[#E8445A]" :
-                                "bg-[#3B9EDA]"
+                                item.badgeColor === 'amber' ? "bg-[var(--amber)]" : 
+                                item.badgeColor === 'rose' ? "bg-[var(--rose)]" :
+                                "bg-[var(--sky)]"
                               )} />
                             ) : (
                               <span className={cn(
                                 "ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center animate-in fade-in duration-300",
-                                item.badgeColor === 'amber' ? "bg-[#F5A623] text-white" : 
-                                item.badgeColor === 'rose' ? "bg-[#E8445A] text-white animate-pulse" :
-                                "bg-[#3B9EDA] text-white"
+                                item.badgeColor === 'amber' ? "bg-[var(--amber)] text-white" : 
+                                item.badgeColor === 'rose' ? "bg-[var(--rose)] text-white animate-pulse" :
+                                "bg-[var(--sky)] text-white"
                               )}>
                                 {item.badge}
                               </span>
@@ -153,7 +163,7 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
         {/* Toggle Button */}
         <button 
           onClick={onToggle}
-          className="hidden md:flex items-center justify-center w-full h-10 bg-white/5 border-t border-white/5 text-white/30 hover:text-[#00C9A7] transition-colors"
+          className="hidden md:flex items-center justify-center w-full h-10 bg-white/5 border-t border-white/5 text-white/30 hover:text-[var(--teal)] transition-colors"
           title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
@@ -165,7 +175,7 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
             "flex items-center bg-white/5 rounded-2xl transition-all hover:bg-white/10 group",
             collapsed ? "justify-center p-2" : "p-3 gap-3"
           )}>
-            <div className="w-9 h-9 rounded-xl bg-[#F5A623] grid place-items-center text-sm font-bold text-white shrink-0 shadow-lg shadow-amber-500/20">
+            <div className="w-9 h-9 rounded-xl bg-[var(--amber)] grid place-items-center text-sm font-bold text-white shrink-0 shadow-lg shadow-amber-500/20">
               {user.name?.charAt(0).toUpperCase() || 'U'}
             </div>
             {!collapsed && (
@@ -178,7 +188,7 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
                 </div>
                 <button 
                   onClick={onLogout}
-                  className="text-white/20 hover:text-[#E8445A] transition-colors p-1.5 shrink-0"
+                  className="text-white/20 hover:text-[var(--rose)] transition-colors p-1.5 shrink-0"
                   title="Logout"
                 >
                   <LogOut size={16} />

@@ -14,6 +14,8 @@ import { TenderRecord, BidderRecord, User, MasterData } from '../types';
 import { format } from 'date-fns';
 import { api } from '../services/api';
 import { supabase } from '../lib/supabase';
+import { playSound } from '../lib/sounds';
+import { toast } from '../lib/toast';
 import ErrorMessage from './ErrorMessage';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -416,6 +418,8 @@ export default function Tender() {
       await api.logActivity('UPDATE', 'TENDER', editForm.tender_id, `Updated Tender Tab ${activeTab + 1}: Stage advanced to ${autoStage}`, currentUser);
 
       setLastSaved(new Date().toLocaleTimeString());
+      playSound('save');
+      toast.success('Saved', `Tab ${activeTab + 1} saved successfully`);
       setSuccessMessage(`Tab ${activeTab + 1} saved successfully`);
       fetchData();
       
@@ -427,6 +431,8 @@ export default function Tender() {
 
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSaving(false);
@@ -461,9 +467,13 @@ export default function Tender() {
         .getPublicUrl(filePath);
       
       setEditForm(prev => ({ ...prev, [field]: publicUrl }));
+      playSound('save');
+      toast.success('Document Uploaded', `${field.replace(/_/g,' ')} uploaded successfully`);
       setSuccessMessage(`${field.replace(/_/g,' ')} uploaded successfully`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Upload Failed', err.message);
       setError(`Upload failed: ${err.message}`);
     } finally {
       setUploading(null);
@@ -505,6 +515,8 @@ export default function Tender() {
       
       setBidders([...bidders, data]);
       setNewBidder({ bidder_name: '', emd_status: 'Submitted' });
+      playSound('save');
+      toast.success('Bidder Added', "Bidder added successfully");
       setSuccessMessage("Bidder added successfully");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
@@ -617,11 +629,15 @@ export default function Tender() {
     setSubmitting(true);
     try {
       await api.moveToAwarded(showAwardConfirm, currentUser);
+      playSound('move');
+      toast.success('Moved to Awarded', "Tender moved to Awarded Works successfully!");
       setSuccessMessage("Tender moved to Awarded Works successfully!");
       setShowAwardConfirm(null);
       fetchData();
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSubmitting(false);
@@ -662,9 +678,13 @@ export default function Tender() {
       setQuickUpdate(null);
       setQuickForm({});
       fetchData();
+      playSound('save');
+      toast.success('Quick Updated', `Stage advanced to ${autoStage}`);
       setSuccessMessage(`Tender updated. New stage: ${autoStage}`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setQuickSaving(false);
@@ -1099,7 +1119,10 @@ export default function Tender() {
               {TENDER_TABS.map((tab, i) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(i)}
+                  onClick={() => {
+                    playSound('tick');
+                    setActiveTab(i);
+                  }}
                   className={cn(
                     "flex-1 flex flex-col items-center gap-1 py-3 px-2 text-[10px] font-bold uppercase tracking-wider transition-all relative whitespace-nowrap min-w-0",
                     activeTab === i
@@ -2011,7 +2034,13 @@ export default function Tender() {
               </div>
               <div className="flex gap-4">
                 {activeTab > 0 && (
-                  <button onClick={() => setActiveTab(activeTab - 1)} className="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all uppercase tracking-widest">
+                  <button 
+                    onClick={() => {
+                      playSound('tick');
+                      setActiveTab(activeTab - 1);
+                    }} 
+                    className="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-all uppercase tracking-widest"
+                  >
                     Previous
                   </button>
                 )}
@@ -2019,7 +2048,8 @@ export default function Tender() {
                   <button 
                     onClick={() => {
                        handleTabSave();
-                       setActiveTab(activeTab + 1);
+                       playSound('tick');
+                     setActiveTab(activeTab + 1);
                     }}
                     disabled={saving}
                     className="px-6 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-black transition-all uppercase tracking-widest"

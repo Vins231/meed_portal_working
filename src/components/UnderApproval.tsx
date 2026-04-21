@@ -9,6 +9,8 @@ import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { api } from '../services/api';
+import { playSound } from '../lib/sounds';
+import { toast } from '../lib/toast';
 import { ApprovalRecord, User, MasterData } from '../types';
 import ErrorMessage from './ErrorMessage';
 import * as XLSX from 'xlsx';
@@ -390,6 +392,8 @@ export default function UnderApproval() {
         status: 'Success'
       }]);
 
+      playSound('save');
+      toast.success('Saved', "Record updated successfully");
       setSuccessMessage("Record updated successfully");
       setShowEditModal(null);
       setCurrentStep(1);
@@ -397,6 +401,8 @@ export default function UnderApproval() {
       fetchData();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSubmitting(false);
@@ -456,11 +462,15 @@ export default function UnderApproval() {
         status: 'Success'
       }]);
 
+      playSound('move');
+      toast.success('Moved to Tender', "Work moved to Tender stage successfully!");
       setSuccessMessage("Work moved to Tender stage successfully!");
       setShowMoveConfirm(null);
       fetchData();
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setSubmitting(false);
@@ -501,9 +511,13 @@ export default function UnderApproval() {
       setQuickUpdate(null);
       setQuickForm({});
       fetchData();
+      playSound('save');
+      toast.success('Quick Updated', `Stage advanced to ${autoStage}`);
       setSuccessMessage(`Record updated. New stage: ${autoStage}`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
+      playSound('error');
+      toast.error('Error', err.message);
       setError(err.message);
     } finally {
       setQuickSaving(false);
@@ -1135,7 +1149,10 @@ export default function UnderApproval() {
             <div className="px-10 py-8 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
               <button 
                 type="button"
-                onClick={() => currentStep > 1 ? setCurrentStep(prev => (prev - 1) as any) : setShowEditModal(null)}
+                onClick={() => {
+                  playSound('tick');
+                  currentStep > 1 ? setCurrentStep(prev => (prev - 1) as any) : setShowEditModal(null);
+                }}
                 className="flex items-center gap-2 px-6 py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-[#0B1F3A] transition-colors"
               >
                 <ChevronLeft size={16} />
@@ -1146,7 +1163,10 @@ export default function UnderApproval() {
                 {currentStep < 3 ? (
                   <button 
                     type="button"
-                    onClick={() => setCurrentStep(prev => (prev + 1) as any)}
+                    onClick={() => {
+                      playSound('tick');
+                      setCurrentStep(prev => (prev + 1) as any);
+                    }}
                     className="flex items-center gap-2 px-8 py-3.5 bg-[#0B1F3A] text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-[#0B1F3A]/90 transition-all shadow-lg shadow-[#0B1F3A]/20"
                   >
                     Continue

@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import AlertPanel from './AlertPanel';
 import CommandPalette from './CommandPalette';
+import ToastContainer from './ToastContainer';
 import { User } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -40,6 +41,13 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   useEffect(() => {
     localStorage.setItem('sidebar_collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('meed_theme');
+    if (saved && saved !== 'default') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -210,6 +218,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         isOpen={isSearchOpen} 
         onClose={() => setIsSearchOpen(false)} 
       />
+
+      <ToastContainer />
 
       <main className={cn(
         "pt-[var(--topbar)] min-h-screen transition-all duration-300",
