@@ -27,6 +27,7 @@ interface UserRecord {
   streak: number;
   created_on: string;
   notes: string;
+  permissions?: Record<string, any>;
 }
 
 export default function Admin({ user: currentUser }: AdminProps) {
@@ -35,6 +36,10 @@ export default function Admin({ user: currentUser }: AdminProps) {
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // New states for inline confirmations
+  const [confirmDeactivate, setConfirmDeactivate] = useState<UserRecord | null>(null);
+  const [confirmRoleChange, setConfirmRoleChange] = useState<{user: UserRecord, newRole: string} | null>(null);
 
   // Permission State
   const [editingPerms, setEditingPerms] = useState<UserRecord | null>(null);
@@ -172,34 +177,61 @@ export default function Admin({ user: currentUser }: AdminProps) {
   };
 
   const toggleStatus = async (targetUser: UserRecord) => {
-    const newStatus = targetUser.status === 'Active' ? 'Inactive' : 'Active';
-    const actionLabel = newStatus === 'Active' ? 'Activate' : 'Deactivate';
+    const newStatus = targetUser.status === 'Active' 
+      ? 'Inactive' : 'Active';
     
     if (newStatus === 'Inactive') {
-      if (!confirm(`Deactivate ${targetUser.name}? They will lose portal access immediately.`)) return;
+      setConfirmDeactivate(targetUser);
+      return;
     }
+    await doStatusChange(targetUser, 'Active');
+  };
 
+  const doStatusChange = async (targetUser: UserRecord, newStatus: string) => {
     try {
       const { error } = await supabase
         .from('users')
         .update({ status: newStatus })
         .eq('user_id', targetUser.user_id);
-      
       if (error) throw error;
-
       if (currentUser) {
-        await api.logActivity(
-          'UPDATE',
-          'ADMIN',
+        await api.logActivity('UPDATE','ADMIN',
           targetUser.user_id,
           `User ${targetUser.name} status changed to ${newStatus} by ${currentUser.name}`,
-          currentUser
-        );
+          currentUser);
       }
-
+      setConfirmDeactivate(null);
       fetchData();
     } catch (err) {
-      console.error('Error updating status:', err);
+      console.error('Status change error:', err);
+      alert('Failed to update user status. Check console.');
+    }
+  };
+
+  const doRoleChange = async () => {
+    if (!confirmRoleChange) return;
+    const { user: targetUser, newRole } = confirmRoleChange;
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ role: newRole })
+        .eq('user_id', targetUser.user_id);
+      if (error) {
+        console.error('Role change error:', error);
+        alert(`Failed: ${error.message}`);
+        return;
+      }
+      if (currentUser) {
+        await api.logActivity('UPDATE','ADMIN',
+          targetUser.user_id,
+          `Role changed from ${targetUser.role} to ${newRole} for ${targetUser.name} by ${currentUser.name}`,
+          currentUser);
+      }
+      setConfirmRoleChange(null);
+      fetchData();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error: ${err.message}`);
     }
   };
 
@@ -246,9 +278,9 @@ export default function Admin({ user: currentUser }: AdminProps) {
     
     const roleDefault = defaults[u.role] || 
       defaults.Viewer;
-    const merged = (u as any).permissions && 
-      Object.keys((u as any).permissions).length > 0
-      ? { ...roleDefault, ...(u as any).permissions }
+    const merged = u.permissions && 
+      Object.keys(u.permissions).length > 0
+      ? { ...roleDefault, ...u.permissions }
       : roleDefault;
     
     setPermForm(merged);
@@ -259,12 +291,21 @@ export default function Admin({ user: currentUser }: AdminProps) {
   const savePermissions = async () => {
     if (!editingPerms) return;
     setSavingPerms(true);
+    console.log('Saving permissions for:', editingPerms.user_id, permForm);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .update({ permissions: permForm })
-        .eq('user_id', editingPerms.user_id);
-      if (error) throw error;
+        .eq('user_id', editingPerms.user_id)
+        .select();
+      
+      console.log('Save result:', data, error);
+      
+      if (error) {
+        console.error('Permission save error:', error);
+        alert(`Failed to save: ${error.message}`);
+        return;
+      }
       if (currentUser) {
         await api.logActivity('UPDATE','ADMIN',
           editingPerms.user_id,
@@ -274,9 +315,9 @@ export default function Admin({ user: currentUser }: AdminProps) {
       setEditingPerms(null);
       window.dispatchEvent(new Event('modal-close'));
       fetchData();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to save permissions');
+    } catch (err: any) {
+      console.error('Unexpected error:', err);
+      alert(`Error: ${err.message}`);
     } finally {
       setSavingPerms(false);
     }
@@ -284,15 +325,17 @@ export default function Admin({ user: currentUser }: AdminProps) {
 
   const resetPermissions = async () => {
     if (!editingPerms) return;
-    if (!confirm('Reset to role defaults? All custom permissions will be cleared.')) return;
     setSavingPerms(true);
     try {
-      await supabase.from('users')
+      const { error } = await supabase.from('users')
         .update({ permissions: {} })
         .eq('user_id', editingPerms.user_id);
+      if (error) throw error;
       setEditingPerms(null);
       window.dispatchEvent(new Event('modal-close'));
       fetchData();
+    } catch (err: any) {
+      alert(`Reset failed: ${err.message}`);
     } finally {
       setSavingPerms(false);
     }
@@ -419,32 +462,15 @@ export default function Admin({ user: currentUser }: AdminProps) {
                   <td className="px-6 py-4">
                     <select
                       value={u.role}
-                      onChange={async (e) => {
+                      onChange={(e) => {
                         const newRole = e.target.value;
-                        if (u.role === 'SuperAdmin') {
-                          alert('SuperAdmin role cannot be changed.');
-                          return;
-                        }
+                        if (u.role === 'SuperAdmin') return;
                         if (u.user_id === currentUser?.user_id) {
                           alert('You cannot change your own role.');
                           return;
                         }
-                        if (!confirm(`Change ${u.name}'s role to ${newRole}?`)) 
-                          return;
-                        try {
-                          const { error } = await supabase
-                            .from('users')
-                            .update({ role: newRole })
-                            .eq('user_id', u.user_id);
-                          if (error) throw error;
-                          await api.logActivity('UPDATE','ADMIN',
-                            u.user_id,
-                            `Role changed to ${newRole} for ${u.name} by ${currentUser?.name}`,
-                            currentUser!);
-                          fetchData();
-                        } catch (err) {
-                          alert('Failed to change role');
-                        }
+                        if (newRole === u.role) return;
+                        setConfirmRoleChange({ user: u, newRole });
                       }}
                       className={cn(
                         "px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider cursor-pointer outline-none",
@@ -861,6 +887,77 @@ export default function Admin({ user: currentUser }: AdminProps) {
                   Save Permissions
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeactivate && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-rose-50 rounded-full flex items-center justify-center mx-auto">
+              <UserX size={28} className="text-rose-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-[var(--navy)] text-lg">Deactivate User?</h3>
+              <p className="text-sm text-slate-500 mt-2">
+                <span className="font-bold text-slate-700">
+                  {confirmDeactivate.name}
+                </span>
+                <br/>
+                will immediately lose access to the portal.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setConfirmDeactivate(null)}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all">
+                Cancel
+              </button>
+              <button
+                onClick={() => doStatusChange(confirmDeactivate, 'Inactive')}
+                className="flex-1 px-4 py-2.5 bg-rose-600 text-white rounded-xl font-bold text-sm hover:bg-rose-700 transition-all">
+                Deactivate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRoleChange && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-sky-50 rounded-full flex items-center justify-center mx-auto">
+              <Shield size={28} className="text-sky-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-[var(--navy)] text-lg">Change Role?</h3>
+              <p className="text-sm text-slate-500 mt-2">
+                Change <span className="font-bold text-slate-700">
+                  {confirmRoleChange.user.name}
+                </span> from
+                <span className="font-bold text-rose-600">
+                  {' '}{confirmRoleChange.user.role}
+                </span> to
+                <span className="font-bold text-teal-600">
+                  {' '}{confirmRoleChange.newRole}
+                </span>?
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Their permissions will update immediately.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setConfirmRoleChange(null)}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all">
+                Cancel
+              </button>
+              <button
+                onClick={doRoleChange}
+                className="flex-1 px-4 py-2.5 bg-[var(--teal)] text-white rounded-xl font-bold text-sm hover:bg-[var(--teal2)] transition-all">
+                Confirm
+              </button>
             </div>
           </div>
         </div>
