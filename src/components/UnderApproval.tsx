@@ -81,6 +81,9 @@ export default function UnderApproval() {
 
   // Modals
   const [showEditModal, setShowEditModal] = useState<ApprovalRecord | null>(null);
+  const [generatingEstNo, setGeneratingEstNo] = useState(false);
+  const [estNoMode, setEstNoMode] = useState<'auto' | 'manual'>('auto');
+  const [manualEstNo, setManualEstNo] = useState('');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -350,6 +353,30 @@ export default function UnderApproval() {
     if (record.estimated_cost && Number(record.estimated_cost) > 0) 
       return 'FC Pending';
     return 'Estimate Pending';
+  };
+
+  const openEditModal = async (record: ApprovalRecord) => {
+    // Reset mode states
+    setEstNoMode('auto');
+    setManualEstNo('');
+    setShowEditModal(record);
+    setCurrentStep(1);
+    window.dispatchEvent(new Event('modal-open'));
+
+    // Only auto-generate if record has NO estimate_no
+    if (!record.estimate_no) {
+      setGeneratingEstNo(true);
+      try {
+        const estNo = await api.generateEstimateNo();
+        setShowEditModal(prev =>
+          prev ? { ...prev, estimate_no: estNo } : null
+        );
+      } catch (err) {
+        console.error('Estimate no generation failed:', err);
+      } finally {
+        setGeneratingEstNo(false);
+      }
+    }
   };
 
   const handleSaveRecord = async () => {
@@ -692,11 +719,7 @@ export default function UnderApproval() {
                   <td className="px-8 py-5 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button 
-                        onClick={() => {
-                          setShowEditModal(r);
-                          window.dispatchEvent(new Event('modal-open'));
-                          setCurrentStep(1);
-                        }}
+                        onClick={() => openEditModal(r)}
                         className="p-2.5 text-slate-400 hover:text-[#00C9A7] hover:bg-[#00C9A7]/10 rounded-xl transition-all" 
                         title="Edit Record"
                       >
@@ -964,14 +987,163 @@ export default function UnderApproval() {
                 <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-2">
-                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">Estimate Number</label>
-                      <input 
-                        type="text"
-                        value={showEditModal.estimate_no || ''}
-                        onChange={(e) => setShowEditModal({...showEditModal, estimate_no: e.target.value})}
-                        className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:border-[#00C9A7] focus:bg-white transition-all font-medium"
-                        placeholder="e.g. EST/2024/001"
-                      />
+                      <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+                        Estimate Number
+                      </label>
+
+                      {/* CASE 1: Record already has a saved estimate_no */}
+                      {showEditModal?.estimate_no && !generatingEstNo && estNoMode === 'auto' && (
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={showEditModal.estimate_no}
+                              readOnly
+                              className="w-full px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-sm font-bold text-teal-700 cursor-not-allowed outline-none"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-teal-500">
+                              🔒
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between ml-1">
+                            <p className="text-[10px] text-slate-400">
+                              Auto-assigned · Read only
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEstNoMode('manual');
+                                setManualEstNo(showEditModal.estimate_no || '');
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-rose-500 transition-colors font-bold uppercase tracking-wider">
+                              Edit manually
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CASE 2: Generating spinner */}
+                      {generatingEstNo && (
+                        <div className="flex items-center gap-3 px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl">
+                          <Loader2 size={16} className="animate-spin text-[var(--teal)] shrink-0" />
+                          <span className="text-sm font-medium text-teal-600">
+                            Generating estimate number...
+                          </span>
+                        </div>
+                      )}
+
+                      {/* CASE 3: No estimate_no yet — show toggle */}
+                      {!showEditModal?.estimate_no && !generatingEstNo && (
+                        <div className="space-y-3">
+                          <div className="flex p-1 bg-slate-100 rounded-xl w-fit gap-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setEstNoMode('auto');
+                                setManualEstNo('');
+                                setGeneratingEstNo(true);
+                                try {
+                                  const estNo = await api.generateEstimateNo();
+                                  setShowEditModal(prev =>
+                                    prev ? { ...prev, estimate_no: estNo } : null
+                                  );
+                                } finally {
+                                  setGeneratingEstNo(false);
+                                }
+                              }}
+                              className={cn(
+                                "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                                estNoMode === 'auto'
+                                  ? "bg-white text-[var(--teal)] shadow-sm"
+                                  : "text-slate-500 hover:text-slate-700"
+                              )}
+                            >
+                              ⚡ Auto
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEstNoMode('manual');
+                                setShowEditModal(prev =>
+                                  prev ? { ...prev, estimate_no: '' } : null
+                                );
+                              }}
+                              className={cn(
+                                "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                                estNoMode === 'manual'
+                                  ? "bg-white text-[var(--navy)] shadow-sm"
+                                  : "text-slate-500 hover:text-slate-700"
+                              )}
+                            >
+                              ✏️ Manual
+                            </button>
+                          </div>
+
+                          {estNoMode === 'auto' && (
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={showEditModal?.estimate_no || ''}
+                                readOnly
+                                placeholder="Click Auto to generate..."
+                                className="w-full px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-sm font-bold text-teal-700 cursor-not-allowed outline-none placeholder:font-normal placeholder:text-teal-400"
+                              />
+                            </div>
+                          )}
+
+                          {estNoMode === 'manual' && (
+                            <div className="space-y-1.5">
+                              <input
+                                type="text"
+                                value={manualEstNo}
+                                onChange={(e) => {
+                                  setManualEstNo(e.target.value);
+                                  setShowEditModal(prev =>
+                                    prev ? { ...prev, estimate_no: e.target.value } : null
+                                  );
+                                }}
+                                placeholder="e.g. MEED-EST-018/2024-25"
+                                className="w-full px-5 py-3.5 bg-white border-2 border-[var(--navy)] rounded-2xl text-sm font-bold text-[var(--navy)] outline-none focus:border-[var(--teal)] transition-all"
+                                autoFocus
+                              />
+                              <p className="text-[10px] text-slate-400 ml-1">
+                                Enter existing estimate number from records. Format: MEED-EST-XXX/YYYY-YY
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* CASE 4: Manual edit mode */}
+                      {estNoMode === 'manual' && showEditModal?.estimate_no !== '' && !generatingEstNo && (
+                        <div className="space-y-1.5">
+                          <input
+                            type="text"
+                            value={manualEstNo || (showEditModal?.estimate_no || '')}
+                            onChange={(e) => {
+                              setManualEstNo(e.target.value);
+                              setShowEditModal(prev =>
+                                prev ? { ...prev, estimate_no: e.target.value } : null
+                              );
+                            }}
+                            className="w-full px-5 py-3.5 bg-white border-2 border-amber-400 rounded-2xl text-sm font-bold text-[var(--navy)] outline-none focus:border-[var(--teal)] transition-all"
+                          />
+                          <div className="flex items-center justify-between ml-1">
+                            <p className="text-[10px] text-amber-600 font-medium">
+                              ⚠️ Manual override — editing existing number
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEstNoMode('auto');
+                                setManualEstNo('');
+                              }}
+                              className="text-[10px] text-slate-400 hover:text-[var(--teal)] transition-colors font-bold uppercase tracking-wider">
+                              Back to auto
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-2">

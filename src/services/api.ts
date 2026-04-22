@@ -13,6 +13,18 @@ import {
   SectionMaster
 } from "../types";
 
+const getFinancialYear = (): string => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const fyStart = month >= 4 ? year : year - 1;
+  const fyEnd = String(fyStart + 1).slice(-2);
+  return `${fyStart}-${fyEnd}`;
+  // April 2026 → "2026-27"
+  // January 2027 → "2026-27"  
+  // April 2027 → "2027-28"
+};
+
 export const api = {
   // --- MASTER DATA ---
   async getDivisions(): Promise<MasterData[]> {
@@ -143,6 +155,51 @@ export const api = {
     if (error) throw error;
   },
 
+  async generateEstimateNo(): Promise<string> {
+    const fy = getFinancialYear(); // e.g. "2026-27"
+    const pattern = `MEED-EST-%/${fy}`;
+
+    const { data, error } = await supabase
+      .from('under_approval')
+      .select('estimate_no')
+      .like('estimate_no', pattern);
+
+    if (error) throw error;
+
+    let maxSeq = 0;
+    const regex = /MEED-EST-(\d+)\//;
+
+    (data || []).forEach(item => {
+      if (!item.estimate_no) return;
+      const match = item.estimate_no.match(regex);
+      if (match) {
+        const seq = parseInt(match[1]);
+        if (seq > maxSeq) maxSeq = seq;
+      }
+    });
+
+    let nextSeq = maxSeq + 1;
+    let candidate = 
+      `MEED-EST-${String(nextSeq).padStart(3,'0')}/${fy}`;
+
+    let exists = true;
+    while (exists) {
+      const { data: existing } = await supabase
+        .from('under_approval')
+        .select('estimate_no')
+        .eq('estimate_no', candidate)
+        .maybeSingle();
+      if (!existing) {
+        exists = false;
+      } else {
+        nextSeq++;
+        candidate = 
+          `MEED-EST-${String(nextSeq).padStart(3,'0')}/${fy}`;
+      }
+    }
+    return candidate;
+  },
+
   async moveToTender(approval: ApprovalRecord, user: User): Promise<void> {
     // 1. Update under_approval
     const { error: updateError } = await supabase
@@ -179,49 +236,47 @@ export const api = {
   },
 
   async generateTenderNo(): Promise<string> {
-    const year = new Date().getFullYear();
-    const pattern = `MEED-%/${year}`;
-    
+    const fy = getFinancialYear(); // e.g. "2026-27"
+    const pattern = `MEED-TND-%/${fy}`;
+
     const { data, error } = await supabase
       .from('tender')
       .select('tender_no')
       .like('tender_no', pattern);
-    
+
     if (error) throw error;
 
     let maxSeq = 0;
-    const regex = /MEED-(\d+)\//;
-    
-    if (data && data.length > 0) {
-      data.forEach(item => {
-        const match = item.tender_no?.match(regex);
-        if (match) {
-          const seq = parseInt(match[1]);
-          if (seq > maxSeq) maxSeq = seq;
-        }
-      });
-    }
+    const regex = /MEED-TND-(\d+)\//;
+
+    (data || []).forEach(item => {
+      if (!item.tender_no) return;
+      const match = item.tender_no.match(regex);
+      if (match) {
+        const seq = parseInt(match[1]);
+        if (seq > maxSeq) maxSeq = seq;
+      }
+    });
 
     let nextSeq = maxSeq + 1;
-    let candidate = `MEED-${String(nextSeq).padStart(3, '0')}/${year}`;
+    let candidate = 
+      `MEED-TND-${String(nextSeq).padStart(3,'0')}/${fy}`;
 
-    // Verify uniqueness (extra safety)
     let exists = true;
-    while(exists) {
-      const { data: existingData } = await supabase
+    while (exists) {
+      const { data: existing } = await supabase
         .from('tender')
         .select('tender_no')
         .eq('tender_no', candidate)
         .maybeSingle();
-      
-      if (!existingData) {
+      if (!existing) {
         exists = false;
       } else {
         nextSeq++;
-        candidate = `MEED-${String(nextSeq).padStart(3, '0')}/${year}`;
+        candidate = 
+          `MEED-TND-${String(nextSeq).padStart(3,'0')}/${fy}`;
       }
     }
-
     return candidate;
   },
 

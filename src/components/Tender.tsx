@@ -114,6 +114,9 @@ export default function Tender() {
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [tenderNoMode, setTenderNoMode] = useState<'auto' | 'manual'>('auto');
+  const [manualTenderNo, setManualTenderNo] = useState('');
+  const [generatingTenderNo, setGeneratingTenderNo] = useState(false);
 
   // New Edit Modal State
   const [activeTab, setActiveTab] = useState(0);
@@ -139,6 +142,8 @@ export default function Tender() {
   }, []);
 
   const openEditModal = (record: TenderRecord) => {
+    setTenderNoMode('auto');
+    setManualTenderNo('');
     setEditForm(record);
     setShowEditModal(record);
     window.dispatchEvent(new Event('modal-open'));
@@ -1143,6 +1148,158 @@ export default function Tender() {
                 {activeTab === 0 && (
                   <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+                          Tender Number
+                        </label>
+
+                        {/* CASE 1: Record already has a saved tender_no */}
+                        {editForm.tender_no && !generatingTenderNo && tenderNoMode === 'auto' && (
+                          <div className="space-y-2">
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={editForm.tender_no}
+                                readOnly
+                                className="w-full px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-sm font-bold text-teal-700 cursor-not-allowed outline-none"
+                              />
+                              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-teal-500">
+                                🔒
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between ml-1">
+                              <p className="text-[10px] text-slate-400">
+                                Auto-assigned · Read only
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTenderNoMode('manual');
+                                  setManualTenderNo(editForm.tender_no || '');
+                                }}
+                                className="text-[10px] text-slate-400 hover:text-rose-500 transition-colors font-bold uppercase tracking-wider">
+                                Edit manually
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* CASE 2: Generating spinner */}
+                        {generatingTenderNo && (
+                          <div className="flex items-center gap-3 px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl">
+                            <Loader2 size={16} className="animate-spin text-[var(--teal)] shrink-0" />
+                            <span className="text-sm font-medium text-teal-600">
+                              Generating tender number...
+                            </span>
+                          </div>
+                        )}
+
+                        {/* CASE 3: No tender_no yet — show toggle */}
+                        {!editForm.tender_no && !generatingTenderNo && (
+                          <div className="space-y-3">
+                            <div className="flex p-1 bg-slate-100 rounded-xl w-fit gap-1">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setTenderNoMode('auto');
+                                  setManualTenderNo('');
+                                  setGeneratingTenderNo(true);
+                                  try {
+                                    const tNo = await api.generateTenderNo();
+                                    setEditForm(prev => ({ ...prev, tender_no: tNo }));
+                                  } finally {
+                                    setGeneratingTenderNo(false);
+                                  }
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                                  tenderNoMode === 'auto'
+                                    ? "bg-white text-[var(--teal)] shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                                )}
+                              >
+                                ⚡ Auto
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTenderNoMode('manual');
+                                  setEditForm(prev => ({ ...prev, tender_no: '' }));
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all",
+                                  tenderNoMode === 'manual'
+                                    ? "bg-white text-[var(--navy)] shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
+                                )}
+                              >
+                                ✏️ Manual
+                              </button>
+                            </div>
+
+                            {tenderNoMode === 'auto' && (
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  value={editForm.tender_no || ''}
+                                  readOnly
+                                  placeholder="Click Auto to generate..."
+                                  className="w-full px-5 py-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-sm font-bold text-teal-700 cursor-not-allowed outline-none placeholder:font-normal placeholder:text-teal-400"
+                                />
+                              </div>
+                            )}
+
+                            {tenderNoMode === 'manual' && (
+                              <div className="space-y-1.5">
+                                <input
+                                  type="text"
+                                  value={manualTenderNo}
+                                  onChange={(e) => {
+                                    setManualTenderNo(e.target.value);
+                                    setEditForm(prev => ({ ...prev, tender_no: e.target.value }));
+                                  }}
+                                  placeholder="e.g. MEED-TND-018/2024-25"
+                                  className="w-full px-5 py-3.5 bg-white border-2 border-[var(--navy)] rounded-2xl text-sm font-bold text-[var(--navy)] outline-none focus:border-[var(--teal)] transition-all"
+                                  autoFocus
+                                />
+                                <p className="text-[10px] text-slate-400 ml-1">
+                                  Enter existing tender number from records. Format: MEED-TND-XXX/YYYY-YY
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* CASE 4: Manual edit mode */}
+                        {tenderNoMode === 'manual' && editForm.tender_no !== '' && !generatingTenderNo && (
+                          <div className="space-y-1.5">
+                            <input
+                              type="text"
+                              value={manualTenderNo || (editForm.tender_no || '')}
+                              onChange={(e) => {
+                                setManualTenderNo(e.target.value);
+                                setEditForm(prev => ({ ...prev, tender_no: e.target.value }));
+                              }}
+                              className="w-full px-5 py-3.5 bg-white border-2 border-amber-400 rounded-2xl text-sm font-bold text-[var(--navy)] outline-none focus:border-[var(--teal)] transition-all"
+                            />
+                            <div className="flex items-center justify-between ml-1">
+                              <p className="text-[10px] text-amber-600 font-medium">
+                                ⚠️ Manual override — editing existing number
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTenderNoMode('auto');
+                                  setManualTenderNo('');
+                                }}
+                                className="text-[10px] text-slate-400 hover:text-[var(--teal)] transition-colors font-bold uppercase tracking-wider">
+                                Back to auto
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="space-y-2 md:col-span-2">
                         <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                           <Layout size={12} className="text-[var(--teal)]" />
