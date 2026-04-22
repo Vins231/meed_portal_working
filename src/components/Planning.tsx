@@ -14,6 +14,7 @@ import ErrorMessage from './ErrorMessage';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { canDo } from '../lib/permissions';
 
 const EXPORT_FILENAME = 'Planning_Register';
 const EXPORT_TITLE = 'Planning Register';
@@ -486,16 +487,18 @@ export default function Planning({ user }: PlanningProps) {
               Export
             </button>
 
-            <button 
-              onClick={() => {
-                handleOpenModal();
-                window.dispatchEvent(new Event('modal-open'));
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--teal)] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[var(--teal2)] transition-all shadow-sm hover:shadow-md"
-            >
-              <Plus size={16} />
-              Initiate Work
-            </button>
+            {canDo.add(user) && (
+              <button 
+                onClick={() => {
+                  handleOpenModal();
+                  window.dispatchEvent(new Event('modal-open'));
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--teal)] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[var(--teal2)] transition-all shadow-sm hover:shadow-md"
+              >
+                <Plus size={16} />
+                Initiate Work
+              </button>
+            )}
           </div>
         </div>
 
@@ -1007,44 +1010,50 @@ export default function Planning({ user }: PlanningProps) {
 
                       {r.status !== 'Submitted' && r.status !== 'Deleted' ? (
                         <>
-                          <button 
-                            onClick={() => {
-                              handleOpenModal(r);
-                              window.dispatchEvent(new Event('modal-open'));
-                            }}
-                            className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
-                            title="Edit Record"
-                          >
-                            <Pencil size={14} />
-                          </button>
+                          {canDo.edit(user, r) && (
+                            <button 
+                              onClick={() => {
+                                handleOpenModal(r);
+                                window.dispatchEvent(new Event('modal-open'));
+                              }}
+                              className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
+                              title="Edit Record"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
                           
-                          <button 
-                            onClick={() => {
-                              setShowConfirm({ record: r, type: 'delete' });
-                              window.dispatchEvent(new Event('modal-open'));
-                            }}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                            title="Archive Record"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canDo.delete(user) && (
+                            <button 
+                              onClick={() => {
+                                setShowConfirm({ record: r, type: 'delete' });
+                                window.dispatchEvent(new Event('modal-open'));
+                              }}
+                              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                              title="Archive Record"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
 
-                          <button 
-                            onClick={() => {
-                              setShowConfirm({ record: r, type: 'submit' });
-                              window.dispatchEvent(new Event('modal-open'));
-                            }}
-                            className={cn(
-                              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all",
-                              r.status === 'Ready to Submit' 
-                                ? "bg-[var(--teal)] text-white hover:bg-[var(--teal2)] shadow-sm" 
-                                : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                            )}
-                            disabled={r.status !== 'Ready to Submit' || submitting}
-                          >
-                            <Send size={12} />
-                            Submit
-                          </button>
+                          {canDo.edit(user, r) && (
+                            <button 
+                              onClick={() => {
+                                setShowConfirm({ record: r, type: 'submit' });
+                                window.dispatchEvent(new Event('modal-open'));
+                              }}
+                              className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all",
+                                r.status === 'Ready to Submit' 
+                                  ? "bg-[var(--teal)] text-white hover:bg-[var(--teal2)] shadow-sm" 
+                                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                              )}
+                              disabled={r.status !== 'Ready to Submit' || submitting}
+                            >
+                              <Send size={12} />
+                              Submit
+                            </button>
+                          )}
                         </>
                       ) : r.status === 'Submitted' ? (
                         <div className="flex items-center gap-1.5 text-green-600 font-bold text-[11px] px-3 py-1.5 bg-green-50 rounded-lg border border-green-100">

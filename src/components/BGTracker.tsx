@@ -9,6 +9,7 @@ import { BGRecord, AwardedRecord, User } from '../types';
 import { format, differenceInDays } from 'date-fns';
 import { api } from '../services/api';
 import ErrorMessage from './ErrorMessage';
+import { canDo } from '../lib/permissions';
 
 interface BGTrackerProps {
   user: User;
@@ -157,13 +158,15 @@ export default function BGTracker({ user }: BGTrackerProps) {
               />
             </div>
 
-            <button 
-              onClick={() => handleOpenModal()}
-              className="flex items-center gap-2 px-4 py-2 bg-[var(--teal)] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[var(--teal2)] transition-all shadow-sm"
-            >
-              <Plus size={16} />
-              Add BG
-            </button>
+            {user && canDo.add(user) && (
+              <button 
+                onClick={() => handleOpenModal()}
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--teal)] text-white rounded-[12px] text-[13px] font-semibold hover:bg-[var(--teal2)] transition-all shadow-sm"
+              >
+                <Plus size={16} />
+                Add BG
+              </button>
+            )}
           </div>
         </div>
 
@@ -241,33 +244,39 @@ export default function BGTracker({ user }: BGTrackerProps) {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button 
-                            onClick={() => handleExtend(r)}
-                            className="px-3 py-1.5 bg-white border border-[var(--border)] text-[var(--navy)] rounded-lg text-[11px] font-bold hover:border-[var(--teal)] hover:text-[var(--teal)] transition-all"
-                          >
-                            Extend
-                          </button>
-                          <div className="relative group/menu">
-                            <button className="p-2 text-[var(--muted2)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
-                              <MoreVertical size={14} />
+                          {user && canDo.edit(user, r as any) && (
+                            <button 
+                              onClick={() => handleExtend(r)}
+                              className="px-3 py-1.5 bg-white border border-[var(--border)] text-[var(--navy)] rounded-lg text-[11px] font-bold hover:border-[var(--teal)] hover:text-[var(--teal)] transition-all"
+                            >
+                              Extend
                             </button>
-                            <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-[var(--border)] rounded-xl shadow-xl py-1 z-50 hidden group-hover/menu:block animate-in fade-in zoom-in-95 duration-100">
-                              <button 
-                                onClick={() => handleOpenModal(r)}
-                                className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[var(--navy)] hover:bg-slate-50 font-medium"
-                              >
-                                <Edit size={14} className="text-[var(--teal)]" />
-                                Edit Details
+                          )}
+                          {(user && canDo.edit(user, r as any)) ? (
+                            <div className="relative group/menu">
+                              <button className="p-2 text-[var(--muted2)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                                <MoreVertical size={14} />
                               </button>
-                              <button 
-                                onClick={() => handleRelease(r)}
-                                className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[var(--navy)] hover:bg-slate-50 font-medium"
-                              >
-                                <CheckCircle2 size={14} className="text-emerald-500" />
-                                Release BG
-                              </button>
+                              <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-[var(--border)] rounded-xl shadow-xl py-1 z-50 hidden group-hover/menu:block animate-in fade-in zoom-in-95 duration-100">
+                                <button 
+                                  onClick={() => handleOpenModal(r)}
+                                  className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[var(--navy)] hover:bg-slate-50 font-medium"
+                                >
+                                  <Edit size={14} className="text-[var(--teal)]" />
+                                  Edit Details
+                                </button>
+                                <button 
+                                  onClick={() => handleRelease(r)}
+                                  className="w-full flex items-center gap-2 px-4 py-2 text-[12px] text-[var(--navy)] hover:bg-slate-50 font-medium"
+                                >
+                                  <CheckCircle2 size={14} className="text-emerald-500" />
+                                  Release BG
+                                </button>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="w-8" /> // Empty for layout
+                          )}
                         </div>
                       </td>
                     </tr>

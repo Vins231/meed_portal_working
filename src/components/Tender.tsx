@@ -20,6 +20,7 @@ import ErrorMessage from './ErrorMessage';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { canDo } from '../lib/permissions';
 
 const EXPORT_FILENAME = 'Tender_Register';
 const EXPORT_TITLE = 'Tender Management Register';
@@ -831,14 +832,17 @@ export default function Tender() {
                       <div className="flex flex-col gap-1">
                         <span 
                           className={cn(
-                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider cursor-pointer hover:opacity-80 transition-opacity", 
-                            STAGE_BADGES[r.current_stage] || 'bg-slate-100'
+                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider transition-all", 
+                            STAGE_BADGES[r.current_stage] || 'bg-slate-100',
+                            currentUser && canDo.edit(currentUser, r) ? "cursor-pointer hover:opacity-80" : "cursor-default"
                           )}
                           onClick={() => {
-                            setQuickUpdate({ record: r, type: 'tender' });
-                            setQuickForm({});
+                            if (currentUser && canDo.edit(currentUser, r)) {
+                              setQuickUpdate({ record: r, type: 'tender' });
+                              setQuickForm({});
+                            }
                           }}
-                          title="Click to quick update"
+                          title={currentUser && canDo.edit(currentUser, r) ? "Click to quick update" : "View-only"}
                         >
                           {r.current_stage}
                         </span>
@@ -865,28 +869,33 @@ export default function Tender() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => { 
-                            setShowBidderModal(r); 
-                            window.dispatchEvent(new Event('modal-open'));
-                            fetchBidders(r.tender_id); 
-                          }}
-                          className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
-                          title="Manage Bidders"
-                        >
-                          <Users size={16} />
-                        </button>
-                        <button 
-                          onClick={() => openEditModal(r)}
-                          className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
-                          title="Edit Tender"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        {r.award_status === 'Approved' && r.current_stage !== 'Awarded' && (
+                        {currentUser && canDo.edit(currentUser, r) && (
+                          <button 
+                            onClick={() => { 
+                              setShowBidderModal(r); 
+                              window.dispatchEvent(new Event('modal-open'));
+                              fetchBidders(r.tender_id); 
+                            }}
+                            className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                            title="Manage Bidders"
+                          >
+                            <Users size={16} />
+                          </button>
+                        )}
+                        {currentUser && canDo.edit(currentUser, r) && (
+                          <button 
+                            onClick={() => openEditModal(r)}
+                            className="p-2 text-slate-400 hover:text-[var(--teal)] hover:bg-teal-50 rounded-lg transition-all"
+                            title="Edit Tender"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        {r.award_status === 'Approved' && r.current_stage !== 'Awarded' && currentUser && canDo.award(currentUser) && (
                           <button 
                             onClick={() => {
                               setShowAwardConfirm(r);
+                              window.dispatchEvent(new Event('modal-close')); // Fixed: should be award confirm modal
                               window.dispatchEvent(new Event('modal-open'));
                             }}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-lg text-[11px] font-bold hover:bg-teal-700 shadow-sm transition-all"

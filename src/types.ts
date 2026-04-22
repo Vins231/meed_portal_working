@@ -3,7 +3,7 @@ export interface User {
   name: string;
   email: string;
   password?: string;
-  role: 'Admin' | 'Manager' | 'Engineer' | 'Viewer' | 'Agency';
+  role: 'SuperAdmin' | 'Admin' | 'Manager' | 'Engineer' | 'Viewer' | 'Agency';
   designation?: string;
   division?: string;
   section?: string;

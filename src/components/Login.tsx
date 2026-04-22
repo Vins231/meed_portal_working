@@ -57,7 +57,7 @@ export default function Login({ onLogin }: LoginProps) {
           <div className="flex items-center gap-4 mb-12">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)] p-1 overflow-hidden">
               <img 
-                src="/src/assets/images/mumbai_port_authority_logo_1776756899329.png" 
+                src="/mbpa_logo.png" 
                 alt="MbPA Logo" 
                 className="w-full h-full object-contain"
               />

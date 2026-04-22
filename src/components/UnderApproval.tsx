@@ -16,6 +16,7 @@ import ErrorMessage from './ErrorMessage';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { canDo } from '../lib/permissions';
 
 const EXPORT_FILENAME = 'Under_Approval_Register';
 const EXPORT_TITLE = 'Under Approval Register';
@@ -694,15 +695,18 @@ export default function UnderApproval() {
                   <td className="px-8 py-5 whitespace-nowrap">
                     <span 
                       className={cn(
-                        "inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold border shadow-sm cursor-pointer hover:opacity-80 transition-opacity", 
-                        getStageBadge(r.current_stage)
+                        "inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold border shadow-sm transition-all", 
+                        getStageBadge(r.current_stage),
+                        currentUser && canDo.edit(currentUser, r) ? "cursor-pointer hover:opacity-80" : "cursor-default"
                       )}
                       onClick={() => {
-                        setQuickUpdate({ record: r, type: 'approval' });
-                        window.dispatchEvent(new Event('modal-open'));
-                        setQuickForm({});
+                        if (currentUser && canDo.edit(currentUser, r)) {
+                          setQuickUpdate({ record: r, type: 'approval' });
+                          window.dispatchEvent(new Event('modal-open'));
+                          setQuickForm({});
+                        }
                       }}
-                      title="Click to quick update"
+                      title={currentUser && canDo.edit(currentUser, r) ? "Click to quick update" : "View-only"}
                     >
                       {r.current_stage}
                     </span>
@@ -718,14 +722,16 @@ export default function UnderApproval() {
                   </td>
                   <td className="px-8 py-5 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button 
-                        onClick={() => openEditModal(r)}
-                        className="p-2.5 text-slate-400 hover:text-[#00C9A7] hover:bg-[#00C9A7]/10 rounded-xl transition-all" 
-                        title="Edit Record"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      {r.current_stage === 'Ready to Tender' && (
+                      {currentUser && canDo.edit(currentUser, r) && (
+                        <button 
+                          onClick={() => openEditModal(r)}
+                          className="p-2.5 text-slate-400 hover:text-[#00C9A7] hover:bg-[#00C9A7]/10 rounded-xl transition-all" 
+                          title="Edit Record"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {r.current_stage === 'Ready to Tender' && currentUser && canDo.moveToTender(currentUser) && (
                         <button 
                           onClick={() => {
                             setShowMoveConfirm(r);

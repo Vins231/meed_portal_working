@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { cn } from '../lib/utils';
+import { canDo } from '../lib/permissions';
 
 interface NavItem {
   id: string;
@@ -88,7 +89,7 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
         )}>
           <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1 shrink-0 shadow-[0_4px_12px_rgba(0,0,0,0.2)] overflow-hidden">
             <img 
-              src="/src/assets/images/mumbai_port_authority_logo_1776756899329.png" 
+              src="/mbpa_logo.png" 
               alt="MbPA Logo" 
               className="w-full h-full object-contain"
             />
@@ -104,7 +105,27 @@ export default function Sidebar({ user, onLogout, isOpen, onClose, collapsed, on
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4 scrollbar-hide">
           {navItems.map((section, sIdx) => {
-            const visibleItems = section.items.filter(item => !item.adminOnly || user.role === 'Admin');
+            const visibleItems = section.items.filter(item => {
+              if (item.id === 'profile') return true;
+              if (item.id === 'dashboard') return true;
+              if (item.id === 'admin') {
+                return user?.role === 'SuperAdmin' || 
+                       user?.role === 'Admin';
+              }
+              const moduleMap: Record<string,string> = {
+                planning: 'planning',
+                approval: 'approval',
+                tender: 'tender',
+                awarded: 'awarded',
+                bg: 'bg',
+                reports: 'reports',
+                calendar: 'calendar',
+                activity: 'activity',
+              };
+              const mod = moduleMap[item.id];
+              if (mod) return canDo.viewModule(user, mod);
+              return true;
+            });
             if (visibleItems.length === 0) return null;
 
             return (

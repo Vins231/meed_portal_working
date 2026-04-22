@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { canDo } from '../lib/permissions';
 
 const EXPORT_FILENAME = 'Awarded_Works_Register';
 const EXPORT_TITLE = 'Awarded Works Management Register';
@@ -633,16 +634,20 @@ export default function Awarded() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => handleEdit(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
-                          <PenLine size={14} />
-                        </button>
-                        <button onClick={() => {
-                          setPaymentRecord(r);
-                          window.dispatchEvent(new Event('modal-open'));
-                        }} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
-                          <IndianRupee size={14} />
-                        </button>
-                        <button onClick={() => navigate('/bg')} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all">
+                        {currentUser && canDo.edit(currentUser, r) && (
+                          <button onClick={() => handleEdit(r)} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all" title="Edit Work">
+                            <PenLine size={14} />
+                          </button>
+                        )}
+                        {currentUser && canDo.edit(currentUser, r) && (
+                          <button onClick={() => {
+                            setPaymentRecord(r);
+                            window.dispatchEvent(new Event('modal-open'));
+                          }} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all" title="Add Payment">
+                            <IndianRupee size={14} />
+                          </button>
+                        )}
+                        <button onClick={() => navigate('/bg')} className="p-1.5 text-[var(--muted)] hover:text-[var(--teal)] hover:bg-[var(--teal)]/10 rounded-lg transition-all" title="BG Tracker">
                           <Shield size={14} />
                         </button>
                         <button
